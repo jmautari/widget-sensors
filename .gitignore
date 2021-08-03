@@ -1,0 +1,101 @@
+# Prerequisites
+*.d
+
+# VS
+/.vs
+
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
+
+# Compiled resource file (used by VS only)
+*.aps
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+*.smod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+*.gypcmd
+*.mk
+*.ncb
+*.opensdf
+*.props
+*.pyc
+*.rules
+*.sdf
+*.sln
+*.sublime-project
+*.sublime-workspace
+*.suo
+*.targets
+*.user
+*.vcproj
+*.vcxproj
+*.vcxproj.filters
+*.vpj
+*.vpw
+*.vpwhistu
+*.vtg
+*.xcodeproj
+*.xcworkspace
+*_proto.xml
+*_proto_cpp.xml
+*~
+!Android.mk
+.*.sw?
+.DS_Store
+.classpath
+.cproject
+.gdb_history
+.gdbinit
+.landmines
+.metadata
+.project
+.pydevproject
+# Settings directory for eclipse
+/.settings
+.checkstyle
+cscope.*
+Session.vim
+tags
+Thumbs.db
+# CEF build directory
+/build
+# VS build directory
+/out
+# CEF download directory
+/third_party/cef/
+# clang-format downloads
+/tools/buildtools/external_bin
+/tools/buildtools/linux64/clang-format
+/tools/buildtools/mac/clang-format
+/tools/buildtools/win/clang-format.exe
+# Documentation output
+/doc/output/**
+/doc/doxygen/node_modules/**
+# Crash reports
+/crashpad_server/reports/**
+# Clang-tidy-related
+compile_commands.json
