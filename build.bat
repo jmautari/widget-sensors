@@ -1,7 +1,10 @@
 @echo off
 setlocal
 
-if not exist "build\getthumb.sln" goto need_to_create_build_solution
+rem Set project name below
+set PROJECT_NAME=boilerplate
+
+if not exist "build\%PROJECT_NAME%.sln" goto need_to_create_build_solution
 
 PATH=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer;%PATH%
 
@@ -19,7 +22,7 @@ set __VCVARS=%InstallDir%\VC\Auxiliary\Build
 call "%__VCVARS%\vcvarsall.bat" amd64
 
 cd build
-msbuild getthumb.sln /p:Configuration=Release %*
+msbuild %PROJECT_NAME%.sln /p:Configuration=Release %*
 cd ..
 
 goto done

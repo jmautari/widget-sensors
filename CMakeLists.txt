@@ -3,13 +3,15 @@ cmake_minimum_required(VERSION 3.15.1)
 # Only generate Debug and Release configuration types.
 set(CMAKE_CONFIGURATION_TYPES Debug Release)
 
+set(PROJECT_FOLDER "boilerplate")
+
 # Project name.
-project(getthumb)
+project(boilerplate)
 
 find_package(fmt CONFIG)
 
 # Target executable names.
-set(MAIN_TARGET "getthumb")
+set(MAIN_TARGET "boilerplate")
 
 set(OS_WINDOWS 1)
 
@@ -22,9 +24,6 @@ set(MAIN_SRCS
 set(SHARED_SRCS
   src/logging/logging.h
   src/logging/logging_macros.h
-  src/util/certificate_util.hpp
-  src/util/certificate_util_win.cpp
-  src/util/datetime_util.h
 )
 
 # Add additional include directories
@@ -50,7 +49,7 @@ macro(SET_APP_SOURCE_GROUPS srcs)
     get_filename_component(PARENT_DIR "${ABS_FILE}" DIRECTORY)
 
     # Remove the common directory prefix. What remains in the group.
-    string(REPLACE "${CMAKE_SOURCE_DIR}/downloader/" "" GROUP "${PARENT_DIR}")
+    string(REPLACE "${CMAKE_SOURCE_DIR}/${PROJECT_FOLDER}/" "" GROUP "${PARENT_DIR}")
 
     # Convert to Windows slashes.
     string(REPLACE "/" "\\" GROUP "${GROUP}")
@@ -72,7 +71,7 @@ macro(SET_APP_EXECUTABLE_TARGET_PROPERTIES target)
 
   if(OS_MACOSX OR OS_WINDOWS)
     # Place the target in the "getthumb" folder in Visual Studio and Xcode.
-    set_property(TARGET ${target} PROPERTY FOLDER "getthumb")
+    set_property(TARGET ${target} PROPERTY FOLDER "${PROJECT_FOLDER}")
   endif()
 endmacro()
 
@@ -105,6 +104,7 @@ target_compile_options(${MAIN_TARGET} PRIVATE /wd4201 /wd4324)
 
 target_link_options(${MAIN_TARGET} PRIVATE "$<$<CONFIG:RELEASE>:/DEBUG>" "$<$<CONFIG:RELEASE>:/OPT:REF>")
 
+# Add required libs below
 target_link_libraries(${MAIN_TARGET} PRIVATE
   crypt32
 )
