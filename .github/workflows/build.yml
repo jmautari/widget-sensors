@@ -20,12 +20,12 @@ jobs:
     - name: Get project solution
       run: |
         project_name=$(sed '/^set PROJECT_NAME=/! d; s/[^=]*=//' build.bat)
-        echo "PROJECT_NAME=${project_name}.sln" >> $GITHUB_ENV
+        echo "PROJECT_NAME=${project_name}" >> $GITHUB_ENV
       shell: bash
     - name: Build project
       run: |
         cd build
-        msbuild.exe %PROJECT_NAME% /p:Configuration=Release
+        msbuild.exe %PROJECT_NAME%.sln /p:Configuration=Release
       shell: cmd
     - name: Save artifacts
       uses: actions/upload-artifact@v2
