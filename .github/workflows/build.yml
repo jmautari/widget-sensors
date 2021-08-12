@@ -26,7 +26,7 @@ jobs:
       run: |
         cd build
         msbuild.exe $PROJECT_NAME.sln /p:Configuration=Release
-      shell: cmd
+      shell: bash
     - name: Save artifacts
       uses: actions/upload-artifact@v2
       with:
