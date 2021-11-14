@@ -16,6 +16,7 @@ constexpr wchar_t kValueRawKey[] = L"ValueRaw";
 constexpr int32_t kIntervalSecs = 1;
 constexpr wchar_t kDefaultDataDir[] = L"D:\\backgrounds";
 constexpr wchar_t kSensorsFilename[] = L"sensors.json";
+constexpr wchar_t kInstanceMutex[] = L"widgetsensorinstance";
 
 using key_list_t = std::unordered_map<int32_t,
     std::tuple<std::wstring, std::wstring, std::wstring>>;
@@ -66,7 +67,30 @@ std::string wstring2string(const std::wstring& wstr) {
   return std::string();
 }
 
+bool IsRunning(HANDLE* mutex_handle) {
+  auto handle = CreateMutexW(nullptr, true, kInstanceMutex);
+  if (handle == nullptr) {
+    std::cerr << "Warning: error opening mutex. Err: " << GetLastError()
+              << std::endl;
+    return false;
+  }
+
+  if (GetLastError() == ERROR_ALREADY_EXISTS) {
+    CloseHandle(handle);
+    return true;
+  }
+
+  *mutex_handle = handle;
+  return false;
+}
+
 int wmain(int argc, wchar_t* argv[]) {
+  HANDLE mutex = nullptr;
+  if (IsRunning(&mutex)) {
+    std::cerr << "Another instance is already running" << std::endl;
+    return 1;
+  }
+
   std::wstring data_dir;
   if (argc > 1)
     data_dir = argv[1];
@@ -76,40 +100,49 @@ int wmain(int argc, wchar_t* argv[]) {
       !std::filesystem::is_directory(data_dir, ec))
     data_dir = kDefaultDataDir;
 
-  if (!std::filesystem::exists(data_dir, ec)) {
-    if (!std::filesystem::create_directories(data_dir, ec)) {
-      std::wcerr << "Could not create data directory at " << data_dir
-                 << ". Err code: " << GetLastError() << std::endl;
-      return 1;
-    }
-  }
-
-  auto thread = std::thread([&] {
-    const auto write_sensors_file = [&](auto&& data) {
-      const auto path = std::filesystem::path(data_dir) / kSensorsFilename;
-      std::ofstream f(path, std::ios::trunc);
-      if (!f)
-        return;
-
-      f << wstring2string(data);
-      f.close();
-    };
-
-    do {
-      const auto list = ReadRegistry();
-      std::wostringstream o;
-      o << LR"({"sensors":{)";
-      for (auto&& [k, v] : list) {
-        auto&& [label, value, value_raw] = v;
-        o << L"\"" << k << L"\": {\"sensor\": \"" << label << L"\",\"value\":\""
-          << value << L"\",\"valueRaw\":\"" << value_raw << L"\"},";
+  int result = 0;
+  do {
+    if (!std::filesystem::exists(data_dir, ec)) {
+      if (!std::filesystem::create_directories(data_dir, ec)) {
+        std::wcerr << "Could not create data directory at " << data_dir
+                   << ". Err code: " << GetLastError() << std::endl;
+        result = 1;
+        break;
       }
-      o.seekp(-1, std::ios_base::end);
-      o << "}}";
-      write_sensors_file(o.str());
-      std::this_thread::sleep_for(std::chrono::seconds(kIntervalSecs));
-    } while (true);
-  });
-  thread.join();
-  return 0;
+    }
+
+    auto thread = std::thread([&] {
+      const auto sensor_path = std::filesystem::path(data_dir) /
+                               kSensorsFilename;
+      const auto write_sensors_file = [&](auto&& data) {
+        std::ofstream f(sensor_path, std::ios::trunc);
+        if (!f)
+          return;
+
+        f << wstring2string(data);
+        f.close();
+      };
+
+      std::wcout << L"Writing sensor data to " << sensor_path.native()
+                 << std::endl << "Press CTRL+C to quit" << std::endl;
+      do {
+        const auto list = ReadRegistry();
+        std::wostringstream o;
+        o << LR"({"sensors":{)";
+        for (auto&& [k, v] : list) {
+          auto&& [label, value, value_raw] = v;
+          o << L"\"" << k << L"\": {\"sensor\": \"" << label
+            << L"\",\"value\":\"" << value << L"\",\"valueRaw\":\"" << value_raw
+            << L"\"},";
+        }
+        o.seekp(-1, std::ios_base::end);
+        o << "}}";
+        write_sensors_file(o.str());
+        std::this_thread::sleep_for(std::chrono::seconds(kIntervalSecs));
+      } while (true);
+    });
+    thread.join();
+  } while (false);
+  CloseHandle(mutex);
+  return result;
 }
