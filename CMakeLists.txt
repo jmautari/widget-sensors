@@ -3,33 +3,28 @@ cmake_minimum_required(VERSION 3.15.1)
 # Only generate Debug and Release configuration types.
 set(CMAKE_CONFIGURATION_TYPES Debug Release)
 
-set(PROJECT_FOLDER "boilerplate")
+set(PROJECT_FOLDER "main")
 
 # Project name.
-project(boilerplate)
-
-find_package(fmt CONFIG)
+project(widget-sensors)
 
 # Target executable names.
-set(MAIN_TARGET "boilerplate")
+set(MAIN_TARGET "widget-sensors")
 
 set(OS_WINDOWS 1)
 
 # Main executable sources.
 set(MAIN_SRCS
-  src/main.cpp
+  main/main.cpp
 )
 
 # Shared code components with the main project.
 set(SHARED_SRCS
-  src/logging/logging.h
-  src/logging/logging_macros.h
 )
 
 # Add additional include directories
 include_directories(
-  ${CMAKE_SOURCE_DIR}/src
-  ${CMAKE_SOURCE_DIR}/third_party/fmt/include
+  ${CMAKE_SOURCE_DIR}/main
 )
 
 # Allow relative include paths
@@ -93,7 +88,7 @@ SET_APP_SOURCE_GROUPS("${MAIN_SRCS}")
 add_executable(${MAIN_TARGET} WIN32 ${MAIN_SRCS})
 SET_APP_EXECUTABLE_TARGET_PROPERTIES(${MAIN_TARGET})
 
-# Set additional compile & link options for downloader.exe
+# Set additional compile & link options
 target_compile_options(${MAIN_TARGET} PRIVATE "$<$<CONFIG:DEBUG>:/MDd>")
 target_compile_options(${MAIN_TARGET} PRIVATE "$<$<CONFIG:RELEASE>:/MD>" "$<$<CONFIG:RELEASE>:/Zi>")
 target_compile_definitions(${MAIN_TARGET} PRIVATE FMT_HEADER_ONLY OS_WIN)
