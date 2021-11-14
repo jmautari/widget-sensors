@@ -1,4 +1,4 @@
-#include <Windows.h>
+#include "shared/platform.h"
 #include <iostream>
 #include <unordered_map>
 #include <string>
