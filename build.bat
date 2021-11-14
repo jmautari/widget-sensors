@@ -2,7 +2,7 @@
 setlocal
 
 rem Set project name below
-set PROJECT_NAME=boilerplate
+set PROJECT_NAME=widget-sensors
 
 if not exist "build\%PROJECT_NAME%.sln" goto need_to_create_build_solution
 
