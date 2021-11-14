@@ -1,6 +1,6 @@
 # Widget Sensors
 
-Background tool to read HWINFO64 sensors data that are saved to a JSON file with the following structure:
+Background tool that reads HWINFO64 sensors data from Windows registry and saves available data to a JSON file with the following structure:
 
 ```
 {
@@ -59,3 +59,13 @@ Example widget items:
   ]
 }
 ```
+
+# Usage:
+
+```
+widget-sensors.exe [OUTPUT-DIRECTORY]
+```
+
+[OUTPUT-DIRECTORY] is optional, if omitted `D:\Backgrounds` is used.
+
+A file named `sensors.json` is written every second to the output directory.
