@@ -1,6 +1,6 @@
 # Widget Sensors
 
-Background tool that reads HWINFO64 sensors data from Windows registry and saves available data to a JSON file with the following structure:
+Background tool that reads [HWINFO64](#download) sensors data from Windows registry and saves available data to a JSON file with the following structure:
 
 ```
 {
@@ -25,7 +25,11 @@ Background tool that reads HWINFO64 sensors data from Windows registry and saves
 }
 ```
 
-Sensor data can be used by [Widget](https://github.com/jmautari/widgets) items.
+[HWINFO64](#download) sensors that will be tracked must be configured using HWINFO Gadget tab under HWINFO64 Sensor Settings. For example, in the image below the sensor named `Total CPU Usage` is tracked and can be accessed using index `0`
+
+![image](https://user-images.githubusercontent.com/5205328/141667014-146595d3-c632-4b45-b6a9-5da6d8bf0608.png)
+
+Sensor data can be used by [Widget](#download) items.
 
 Example widget items:
 
@@ -60,7 +64,7 @@ Example widget items:
 }
 ```
 
-# Usage:
+## Usage
 
 ```
 widget-sensors.exe [OUTPUT-DIRECTORY]
@@ -69,3 +73,11 @@ widget-sensors.exe [OUTPUT-DIRECTORY]
 [OUTPUT-DIRECTORY] is optional, if omitted `D:\Backgrounds` is used.
 
 A file named `sensors.json` is written every second to the output directory.
+
+## Download
+
+* [HWINFO][1] (Free version works fine)
+* [Widgets][2]
+
+[1]: https://www.hwinfo.com/download/
+[2]: https://github.com/jmautari/widgets
