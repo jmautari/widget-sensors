@@ -25,7 +25,9 @@ Background tool that reads [HWINFO64](#download) sensors data from Windows regis
 }
 ```
 
-[HWINFO64](#download) sensors that will be tracked must be configured using HWINFO Gadget tab under HWINFO64 Sensor Settings. For example, in the image below the sensor named `Total CPU Usage` is tracked and can be accessed using index `0`. Apply the same logic to sensors that are going to be tracked.
+[HWINFO64](#download) sensors that will be tracked must be configured using HWINFO Gadget tab under HWINFO64 Sensor Settings. For example, in the image below the sensor named `Total CPU Usage` is tracked and can be accessed using index `0`.
+
+Apply the same logic to sensors that are going to be tracked by widget-sensors tool.
 
 ![image](https://user-images.githubusercontent.com/5205328/141667014-146595d3-c632-4b45-b6a9-5da6d8bf0608.png)
 
