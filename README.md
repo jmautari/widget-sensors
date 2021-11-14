@@ -74,7 +74,7 @@ widget-sensors.exe [OUTPUT-DIRECTORY]
 
 [OUTPUT-DIRECTORY] is optional, if omitted `D:\Backgrounds` is used.
 
-A file named `sensors.json` is written every second to the output directory.
+A file named `sensors.json` is written every second to the output directory. The `sensors.json` file is read by [Widgets][2] app to allow display of hardware monitoring.
 
 ## Download
 
