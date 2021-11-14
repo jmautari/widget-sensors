@@ -135,7 +135,9 @@ int wmain(int argc, wchar_t* argv[]) {
             << L"\",\"value\":\"" << value << L"\",\"valueRaw\":\"" << value_raw
             << L"\"},";
         }
-        o.seekp(-1, std::ios_base::end);
+        if (list.size())
+          o.seekp(-1, std::ios_base::end);
+
         o << "}}";
         write_sensors_file(o.str());
         std::this_thread::sleep_for(std::chrono::seconds(kIntervalSecs));
