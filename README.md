@@ -33,7 +33,7 @@ Apply the same logic to sensors that are going to be tracked by widget-sensors t
 
 ![image](https://user-images.githubusercontent.com/5205328/141667014-146595d3-c632-4b45-b6a9-5da6d8bf0608.png)
 
-Sensor data can be used by [Widget](#download) items.
+Sensor data can be used by [Widget][2] items.
 
 Example widget items:
 
