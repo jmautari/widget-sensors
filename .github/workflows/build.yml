@@ -30,6 +30,10 @@ jobs:
         cd build
         msbuild.exe %PROJECT_NAME%.sln /p:Configuration=Release
       shell: cmd
+    - name: Copy runtime deps
+      run: |
+        copy third_party\steam\sdk\redistributable_bin\win64\*.dll build\Release\ /y
+      shell: cmd
     - name: Save artifacts
       uses: actions/upload-artifact@v2
       with:
