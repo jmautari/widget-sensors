@@ -1,0 +1,5 @@
+EXPORTS
+
+InitPlugin @1
+GetValues @2
+ShutdownPlugin @3
