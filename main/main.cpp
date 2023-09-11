@@ -6,6 +6,7 @@
 #include <shellapi.h>
 #include <commctrl.h>
 #include <tlhelp32.h>
+#include <powersetting.h>
 #include "steam/sdk/include/steam_api.h"
 #include "steam/sdk/include/isteamapps.h"
 #include <cmath>
@@ -20,12 +21,20 @@
 #include <filesystem>
 #include <vector>
 
+#pragma comment(lib, "PowrProf.lib")
+
 #define WM_M_TRAY   WM_USER + 1
 #define ID_TRAY_ICON 100
 #define IDM_EXIT 1000
 #define IDM_COPY 1001
+#define IDM_SET_BALANCED_PF 1002
+#define IDM_SET_ULTRA_PERFORMANCE_PF 1003
 
 namespace {
+enum class PowerScheme { kPowerBalanced, kPowerUltraPerformance };
+
+typedef BOOL(WINAPI* GUIDFromString_t)(LPCTSTR psz, LPGUID pguid);
+
 typedef HRESULT(WINAPI* LoadIconWithScaleDown_t)(HINSTANCE hinst,
     PCWSTR pszName,
     int cx,
@@ -64,6 +73,13 @@ constexpr char kPluginEntrypoint[] = "InitPlugin";
 constexpr char kPluginGetValues[] = "GetValues";
 constexpr char kPluginShutdown[] = "ShutdownPlugin";
 
+constexpr wchar_t kPowerBalancedGuid[] = {
+  L"{381b4222-f694-41f0-9685-ff5bb260df2e}"
+};
+constexpr wchar_t kPowerUltraPerformanceGuid[] = {
+  L"{5fbd63e4-a245-4aed-b18b-bf9f731eda77}"
+};
+
 constexpr unsigned kWebsocketPort = 30001;
 
 constexpr size_t kDataSize = 512;
@@ -72,6 +88,7 @@ using wstr_ptr_t = std::unique_ptr<wchar_t[]>;
 using key_list_t = std::unordered_map<int32_t,
     std::tuple<wstr_ptr_t, wstr_ptr_t, wstr_ptr_t, wstr_ptr_t>>;
 
+GUIDFromString_t GUIDFromStringW = nullptr;
 std::unordered_multimap<std::string, std::filesystem::path> game_install_map;
 RECT current_window_size{};
 std::shared_mutex window_mutex;
@@ -518,7 +535,40 @@ auto LoadPlugins(
   }
 }
 
+auto SetPowerScheme(PowerScheme k) {
+  if (GUIDFromStringW == nullptr)
+    return;
+
+  GUID guid;
+  wchar_t const* scheme;
+  switch (k) {
+    case PowerScheme::kPowerBalanced:
+      scheme = kPowerBalancedGuid;
+      break;
+    case PowerScheme::kPowerUltraPerformance:
+      scheme = kPowerUltraPerformanceGuid;
+      break;
+    default:
+      return;
+  }
+
+  if (!GUIDFromStringW(scheme, &guid))
+    return;
+
+  if (PowerSetActiveScheme(nullptr, &guid) == ERROR_SUCCESS) {
+    OutputDebugStringW((L"Set power scheme " + std::wstring(scheme)).c_str());
+  } else {
+    OutputDebugStringW(
+        (L"Error setting power scheme to " + std::wstring(scheme)).c_str());
+  }
+}
+
 auto StartMonitoring(const wchar_t* data_dir) {
+  GUIDFromStringW = reinterpret_cast<GUIDFromString_t>(
+      GetProcAddress(GetModuleHandle(L"shell32.dll"), MAKEINTRESOURCEA(704)));
+  if (GUIDFromStringW == nullptr)
+    OutputDebugStringW(L"Procedure entrypoint not found");
+
   std::error_code ec;
   if (data_dir == nullptr || !std::filesystem::exists(data_dir, ec) ||
       !std::filesystem::is_directory(data_dir, ec))
@@ -673,6 +723,7 @@ auto StartMonitoring(const wchar_t* data_dir) {
       if (!pname.empty()) {
         if (current_profile.empty() || pname != current_profile) {
           OutputDebugStringW((L"Got new profile " + pname).c_str());
+          SetPowerScheme(PowerScheme::kPowerUltraPerformance);
           current_profile = pname;
           auto const app_image = MapExecutableToAppId(path, pname);
           app_poster = app_image.find("http") == 0 ? app_image : "";
@@ -696,6 +747,8 @@ auto StartMonitoring(const wchar_t* data_dir) {
 
         std::unique_lock lock(window_mutex);
         current_window_size = {};
+
+        SetPowerScheme(PowerScheme::kPowerBalanced);
       }
 
       LONG width, height;
@@ -836,6 +889,16 @@ void CopyCurrentData() {
   CloseClipboard();
 }
 
+std::wstring GuidToWstr(const GUID& guid) {
+  wchar_t guid_cstr[39];
+  _snwprintf_s(guid_cstr, _countof(guid_cstr), _TRUNCATE,
+      L"{%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x}", guid.Data1,
+      guid.Data2, guid.Data3, guid.Data4[0], guid.Data4[1], guid.Data4[2],
+      guid.Data4[3], guid.Data4[4], guid.Data4[5], guid.Data4[6],
+      guid.Data4[7]);
+  return guid_cstr;
+}
+
 LRESULT CALLBACK WndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam) {
   PAINTSTRUCT ps;
   HDC hdc;
@@ -847,10 +910,20 @@ LRESULT CALLBACK WndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam) {
             RemoveTrayIcon();
             SetEvent(quit_event);
             PostQuitMessage(0);
-          } break;
+            break;
+          }
           case IDM_COPY: {
             CopyCurrentData();
-          } break;
+            break;
+          }
+          case IDM_SET_BALANCED_PF: {
+            SetPowerScheme(PowerScheme::kPowerBalanced);
+            break;
+          }
+          case IDM_SET_ULTRA_PERFORMANCE_PF: {
+            SetPowerScheme(PowerScheme::kPowerUltraPerformance);
+            break;
+          }
         }
       }
 
@@ -874,10 +947,24 @@ LRESULT CALLBACK WndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam) {
           GetCursorPos(&pt);
 
           HMENU hmenu = CreatePopupMenu();
-          InsertMenu(hmenu, 0, MF_BYPOSITION | MF_STRING, IDM_COPY,
+          int pos = 0;
+          InsertMenu(hmenu, pos++, MF_BYPOSITION | MF_STRING,
+              IDM_SET_BALANCED_PF, L"Balanced Power Profile");
+          InsertMenu(hmenu, pos++, MF_BYPOSITION | MF_STRING,
+              IDM_SET_ULTRA_PERFORMANCE_PF, L"Ultra Performance Profile");
+          InsertMenu(hmenu, pos++, MF_BYPOSITION | MF_SEPARATOR, 0, L"-");
+          InsertMenu(hmenu, pos++, MF_BYPOSITION | MF_STRING, IDM_COPY,
               L"Copy current data");
-          InsertMenu(hmenu, 1, MF_BYPOSITION | MF_STRING, IDM_EXIT,
+          InsertMenu(hmenu, pos++, MF_BYPOSITION | MF_STRING, IDM_EXIT,
               L"Stop monitoring");
+
+          GUID *guid;
+          if (PowerGetActiveScheme(nullptr, &guid) == ERROR_SUCCESS) {
+            const auto scheme = GuidToWstr(*guid);
+            CheckMenuItem(hmenu, scheme == kPowerUltraPerformanceGuid ? 1 : 0,
+                MF_BYPOSITION | MF_CHECKED);
+            LocalFree(guid);
+          }
 
           SetForegroundWindow(hwnd);
 
