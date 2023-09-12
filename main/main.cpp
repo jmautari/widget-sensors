@@ -566,40 +566,29 @@ auto SetPowerScheme(PowerScheme k) {
 }
 
 bool EnumeratePowerProfiles(profile_t& profiles) {
-  std::vector<GUID> pGuidList;
-  ULONG numGuids = 0;
+  GUID guid;
+  ULONG size = sizeof(guid);
   int found = 0;
 
   for (ULONG x = 0; x < 16; x++) {
-    if (PowerEnumerate(NULL, NULL, NULL, ACCESS_SCHEME, x, nullptr,
-            &numGuids) != ERROR_MORE_DATA)
-      break;
-
-    pGuidList.resize(numGuids);
     if (PowerEnumerate(NULL, NULL, NULL, ACCESS_SCHEME, x,
-            reinterpret_cast<UCHAR*>(pGuidList.data()),
-            &numGuids) != ERROR_SUCCESS)
+            reinterpret_cast<UCHAR*>(&guid), &size) != ERROR_SUCCESS)
       break;
 
-    for (ULONG i = 0; i < numGuids; i++) {
-      WCHAR nameBuffer[256];
-      DWORD bufferSize = sizeof(nameBuffer) / sizeof(nameBuffer[0]);
+    WCHAR nameBuffer[256];
+    DWORD bufferSize = sizeof(nameBuffer) / sizeof(nameBuffer[0]);
 
-      if (PowerReadFriendlyName(NULL, &pGuidList[i], NULL, NULL,
-              reinterpret_cast<PUCHAR>(nameBuffer),
-              &bufferSize) != ERROR_SUCCESS)
-        continue;
+    if (PowerReadFriendlyName(NULL, &guid, NULL, NULL,
+            reinterpret_cast<PUCHAR>(nameBuffer), &bufferSize) != ERROR_SUCCESS)
+      continue;
 
-      auto const name = std::wstring(nameBuffer);
-      if (name == L"Balanced") {
-        profiles[0] = std::make_tuple(
-            pGuidList[i], GuidToWstr(pGuidList[i]), name);
-        found++;
-      } else if (name == L"Ultimate Performance") {
-        profiles[1] = std::make_tuple(
-            pGuidList[i], GuidToWstr(pGuidList[i]), name);
-        found++;
-      }
+    auto const name = std::wstring(nameBuffer);
+    if (name == L"Balanced") {
+      profiles[0] = std::make_tuple(guid, GuidToWstr(guid), name);
+      found++;
+    } else if (name == L"Ultimate Performance") {
+      profiles[1] = std::make_tuple(guid, GuidToWstr(guid), name);
+      found++;
     }
   }
 
