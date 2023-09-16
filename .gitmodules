@@ -4,3 +4,6 @@
 [submodule "third_party/websocketpp"]
 	path = third_party/websocketpp
 	url = https://github.com/zaphoyd/websocketpp.git
+[submodule "third_party/json"]
+	path = third_party/json
+	url = https://github.com/nlohmann/json.git
