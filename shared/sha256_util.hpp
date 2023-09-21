@@ -4,7 +4,6 @@
 #include <sstream>
 #include "picosha2.h"
 
-#pragma optimize("", off)
 namespace util {
 inline auto SHA256Sum2HexString(const unsigned char* buffer, size_t size) {
   std::ostringstream s;
