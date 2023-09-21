@@ -24,6 +24,7 @@
    René Nyffenegger rene.nyffenegger@adp-gmbh.ch
 
 */
+#pragma once
 #include <string>
 #include <iostream>
 
