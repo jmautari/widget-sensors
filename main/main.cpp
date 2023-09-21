@@ -10,6 +10,7 @@
 #include <powersetting.h>
 #include "steam/sdk/include/steam_api.h"
 #include "steam/sdk/include/isteamapps.h"
+#include "nlohmann/json.hpp"
 #include <cmath>
 #include<iostream>
 #include <unordered_map>
@@ -30,6 +31,7 @@
 #define IDM_COPY 1001
 #define IDM_SET_BALANCED_PF 1002
 #define IDM_SET_ULTIMATE_PERFORMANCE_PF 1003
+#define IDM_CUSTOM_COMMAND 1010
 
 namespace {
 enum class PowerScheme { kPowerBalanced, kPowerUltimatePerformance };
@@ -51,9 +53,13 @@ struct loadlibrary_deleter {
   using pointer = HMODULE;
 };
 using ScopedLoadLibrary = std::unique_ptr<HMODULE, loadlibrary_deleter>;
-using plugin_t = std::
-    tuple<ScopedLoadLibrary, InitPlugin_t, GetValues_t, ShutdownPlugin_t>;
-using plugin_list_t = std::vector<plugin_t>;
+using plugin_t = std::tuple<ScopedLoadLibrary,
+    InitPlugin_t,
+    GetValues_t,
+    ShutdownPlugin_t,
+    ExecuteCommand_t,
+    ProfileChanged_t>;
+using plugin_list_t = std::unordered_map<std::string, plugin_t>;
 using profile_t = std::array<std::tuple<GUID, std::wstring, std::wstring>, 2>;
 
 constexpr wchar_t kHWINFO64Key[] = L"SOFTWARE\\HWiNFO64\\VSB";
@@ -64,6 +70,7 @@ constexpr wchar_t kValuekey[] = L"Value";
 constexpr wchar_t kValueRawKey[] = L"ValueRaw";
 constexpr int32_t kIntervalMs = 500;
 constexpr wchar_t kDefaultDataDir[] = L"D:\\backgrounds";
+constexpr wchar_t kConfigFile[] = L"widget_sensors.json";
 constexpr wchar_t kSensorsFilename[] = L"sensors.json";
 constexpr wchar_t kInstanceMutex[] = L"widgetsensorinstance";
 constexpr wchar_t kGamesDatabase[] = L"gamedb.json";
@@ -74,6 +81,8 @@ constexpr wchar_t kPluginExtension[] = L".dll";
 constexpr char kPluginEntrypoint[] = "InitPlugin";
 constexpr char kPluginGetValues[] = "GetValues";
 constexpr char kPluginShutdown[] = "ShutdownPlugin";
+constexpr char kPluginExecuteCommand[] = "ExecuteCommand";
+constexpr char kPluginProfileChanged[] = "ProfileChanged";
 
 constexpr unsigned kWebsocketPort = 30001;
 
@@ -97,6 +106,10 @@ size_t current_size{ 2048 };
 size_t last_size{};
 std::array<std::array<std::unique_ptr<wchar_t[]>, 4>, kMaxKeys> keys;
 profile_t profiles;
+std::unordered_map<size_t, nlohmann::json> custom_commands;
+
+std::wstring GuidToWstr(const GUID& guid);
+void AddMenu(HMENU hmenu, int& pos, nlohmann::json const& popup);
 
 inline constexpr auto get_value = [&](const wchar_t* k, wchar_t* data) {
   auto size = static_cast<DWORD>(kDataSize);
@@ -104,8 +117,6 @@ inline constexpr auto get_value = [&](const wchar_t* k, wchar_t* data) {
   return RegQueryValueExW(key, k, nullptr, &type, reinterpret_cast<BYTE*>(data),
              &size) == ERROR_SUCCESS;
 };
-
-std::wstring GuidToWstr(const GUID& guid);
 
 void ReadRegistry(HKEY key, key_list_t& list) {
   static bool first = true;
@@ -139,10 +150,10 @@ void ReadRegistry(HKEY key, key_list_t& list) {
 
   for (uint32_t i = 0; i < kMaxKeys; i++) {
     if (!get_value(keys[i][0].get(), std::get<0>(list[i]).get()))
-      break;
+      continue;
 
     if (!get_value(keys[i][1].get(), std::get<1>(list[i]).get()))
-      break;
+      continue;
 
     get_value(keys[i][2].get(), std::get<2>(list[i]).get());
     //get_value(keys[i][3].get(), std::get<3>(list[i]).get());
@@ -506,13 +517,23 @@ bool LoadPlugin(const std::filesystem::path& path,
       GetProcAddress(lib.get(), kPluginGetValues));
   auto shutdown = reinterpret_cast<ShutdownPlugin_t>(
       GetProcAddress(lib.get(), kPluginShutdown));
+  auto execute_command = reinterpret_cast<ExecuteCommand_t>(
+      GetProcAddress(lib.get(), kPluginExecuteCommand));
+  auto profile_changed = reinterpret_cast<
+      ProfileChanged_t>(GetProcAddress(lib.get(), kPluginProfileChanged));
   if (init == nullptr || getvalues == nullptr || shutdown == nullptr)
     return false;
 
   if (!init(data_dir, debug_mode))
     return false;
 
-  plugin_list.emplace_back(std::move(lib), init, getvalues, shutdown);
+  auto file_no_ext = path.stem().u8string();
+  std::transform(file_no_ext.begin(), file_no_ext.end(), file_no_ext.begin(),
+      [](auto c) { return std::tolower(c); });
+  plugin_t p{ std::move(lib), init, getvalues, shutdown, execute_command,
+    profile_changed };
+  OutputDebugStringA(("Adding plugin " + file_no_ext).c_str());
+  plugin_list.emplace(std::move(file_no_ext), std::move(p));
   return true;
 }
 
@@ -595,6 +616,15 @@ bool EnumeratePowerProfiles(profile_t& profiles) {
   return found == 2;
 }
 
+void OnProfileChanged(std::string const& pname) {
+  for (auto& [plugin_name, p] : plugin_list) {
+    auto const profile_changed = std::get<5>(p);
+    if (profile_changed != nullptr) {
+      profile_changed(pname);
+    }
+  }
+}
+
 auto StartMonitoring(const wchar_t* data_dir) {
   if (!EnumeratePowerProfiles(profiles))
     OutputDebugStringW(L"Failure while enumerating power profiles");
@@ -633,6 +663,11 @@ auto StartMonitoring(const wchar_t* data_dir) {
     rtss::RTSSSharedMemory rtss;
     size_t data_size{};
     auto send_buffer = std::make_unique<char[]>(current_size);
+
+    const auto set_current_profile = [&](std::wstring pname) {
+      OnProfileChanged(wstring2string(pname));
+      current_profile = std::move(pname);
+    };
 
     server = std::make_unique<network::WebsocketServer>(kWebsocketPort);
     if (!server->Start([&](auto&& hdl, auto&& msg) {
@@ -754,7 +789,7 @@ auto StartMonitoring(const wchar_t* data_dir) {
         if (current_profile.empty() || pname != current_profile) {
           OutputDebugStringW((L"Got new profile " + pname).c_str());
           SetPowerScheme(PowerScheme::kPowerUltimatePerformance);
-          current_profile = pname;
+          set_current_profile(pname);
           auto const app_image = MapExecutableToAppId(path, pname);
           app_poster = app_image.find("http") == 0 ? app_image : "";
           try {
@@ -771,7 +806,7 @@ auto StartMonitoring(const wchar_t* data_dir) {
         }
       } else if (!current_profile.empty()) {
         OutputDebugStringA("Reseting profile");
-        current_profile = std::move(pname);
+        set_current_profile({});
         current_app = 0;
         app_poster.clear();
 
@@ -805,7 +840,7 @@ auto StartMonitoring(const wchar_t* data_dir) {
         o << L"\"game=>size\": {\"sensor\":\"size\",\"value\":\"\"}";
       }
 
-      for (auto& p : plugin_list) {
+      for (auto& [plugin_name, p] : plugin_list) {
         auto const getvalues = std::get<2>(p);
         if (getvalues != nullptr) {
           const auto v = getvalues(current_profile);
@@ -870,7 +905,7 @@ auto StartMonitoring(const wchar_t* data_dir) {
 }
 
 BOOL WINAPI Shutdown(DWORD) {
-  for (auto& p : plugin_list) {
+  for (auto& [plugin_name, p] : plugin_list) {
     auto const shutdown = std::get<3>(p);
     if (shutdown != nullptr)
       shutdown();
@@ -929,13 +964,102 @@ std::wstring GuidToWstr(const GUID& guid) {
   return guid_cstr;
 }
 
+void ExecuteCustomCommand(size_t index) {
+  auto it = custom_commands.find(index);
+  if (it == custom_commands.end())
+    return;
+
+  try {
+    auto custom_command = it->second;
+    std::string action = custom_command["action"];
+    std::transform(action.begin(), action.end(), action.begin(),
+        [](auto c) { return std::tolower(c); });
+    auto it = plugin_list.find(action);
+    if (it == plugin_list.end())
+      return;
+
+    auto execute_command = std::get<4>(it->second);
+    if (execute_command == nullptr)
+      return;
+
+    std::string command = custom_command["command"];
+    auto params = custom_command.contains("params") &&
+                          custom_command["params"].is_object()
+                      ? custom_command["params"]
+                      : std::vector<std::string>();
+
+    nlohmann::json const cmd { { "command", command }, { "params", params } };
+    if (!execute_command(cmd.dump()))
+      OutputDebugStringA(("Error executing command " + command).c_str());
+  } catch (...) {
+  }
+}
+
+HMENU CreateMenuOptions(int& pos, nlohmann::json const& popup) {
+  HMENU hmenu = CreatePopupMenu();
+  AddMenu(hmenu, pos, popup);
+  return hmenu;
+}
+
+void AddMenu(HMENU hmenu, int& pos, nlohmann::json const& popup) {
+  for (auto&& [a, i] : popup.items()) {
+    std::string const& text = i["text"];
+    if (i.contains("popup") && i["popup"].is_array()) {
+      InsertMenu(hmenu, pos++, MF_BYPOSITION | MF_POPUP,
+          reinterpret_cast<UINT_PTR>(CreateMenuOptions(pos, i["popup"])),
+          string2wstring(text).c_str());
+    } else {
+      custom_commands[pos] = i;
+      InsertMenu(hmenu, pos++, MF_BYCOMMAND | MF_STRING,
+          IDM_CUSTOM_COMMAND + pos, string2wstring(text).c_str());
+    }
+  }
+}
+
+void GetMenuOptions(HMENU hmenu, int& pos) {
+  int argc{};
+  auto argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+  if (argv == nullptr)
+    return;
+
+  std::filesystem::path config_file{ argc > 1 ? argv[1] : kDefaultDataDir };
+  config_file /= kConfigFile;
+
+  std::error_code ec;
+  if (!std::filesystem::exists(config_file, ec))
+    return;
+
+  auto cfg = [&]() -> nlohmann::json {
+    try {
+      std::ifstream f(config_file);
+      if (!f.good())
+        return {};
+
+      return nlohmann::json::parse(f);
+    } catch (...) {
+      return {};
+    }
+  }();
+  if (cfg.empty())
+    return;
+
+  if (!cfg.contains("popup") || !cfg["popup"].is_array())
+    return;
+
+  try {
+    AddMenu(hmenu, pos, cfg["popup"]);
+  } catch (...) {
+  }
+}
+
 LRESULT CALLBACK WndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam) {
   PAINTSTRUCT ps;
   HDC hdc;
   switch (msg) {
     case WM_COMMAND:
       if (lParam == 0) {
-        switch (LOWORD(wParam)) {
+        auto cmd = LOWORD(wParam);
+        switch (cmd) {
           case IDM_EXIT: {
             RemoveTrayIcon();
             SetEvent(quit_event);
@@ -952,6 +1076,14 @@ LRESULT CALLBACK WndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam) {
           }
           case IDM_SET_ULTIMATE_PERFORMANCE_PF: {
             SetPowerScheme(PowerScheme::kPowerUltimatePerformance);
+            break;
+          }
+          default: {
+            if (cmd >= IDM_CUSTOM_COMMAND) {
+              ExecuteCustomCommand(
+                  static_cast<size_t>(cmd) - IDM_CUSTOM_COMMAND);
+            }
+
             break;
           }
         }
@@ -978,6 +1110,7 @@ LRESULT CALLBACK WndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam) {
 
           HMENU hmenu = CreatePopupMenu();
           int pos = 0;
+          GetMenuOptions(hmenu, pos);
           InsertMenu(hmenu, pos++, MF_BYPOSITION | MF_STRING,
               IDM_SET_BALANCED_PF, L"Balanced Power Profile");
           InsertMenu(hmenu, pos++, MF_BYPOSITION | MF_STRING,
@@ -991,11 +1124,12 @@ LRESULT CALLBACK WndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam) {
           GUID *guid;
           if (PowerGetActiveScheme(nullptr, &guid) == ERROR_SUCCESS) {
             const auto scheme = GuidToWstr(*guid);
-            int index = scheme == std::get<1>(profiles[0])   ? 0
-                        : scheme == std::get<1>(profiles[1]) ? 1
-                                                             : -1;
+            int index = scheme == std::get<1>(profiles[0]) ? IDM_SET_BALANCED_PF
+                        : scheme == std::get<1>(profiles[1])
+                            ? IDM_SET_ULTIMATE_PERFORMANCE_PF
+                            : -1;
             if (index != -1)
-              CheckMenuItem(hmenu, index, MF_BYPOSITION | MF_CHECKED);
+              CheckMenuItem(hmenu, index, MF_BYCOMMAND | MF_CHECKED);
 
             LocalFree(guid);
           }

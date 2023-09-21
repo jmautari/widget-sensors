@@ -14,6 +14,15 @@ add_definitions(-DUNICODE -D_UNICODE)
 # Enable the creation of project folders.
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
+include_directories(
+  ${CMAKE_SOURCE_DIR}/main
+  ${CMAKE_SOURCE_DIR}/third_party
+  ${CMAKE_SOURCE_DIR}/third_party/asio/include
+  ${CMAKE_SOURCE_DIR}/third_party/websocketpp
+  ${CMAKE_SOURCE_DIR}/third_party/json/single_include
+  ${CMAKE_SOURCE_DIR}/third_party/PicoSHA2
+)
+
 # Group target contents by directory.
 macro(SET_PLUGIN_SOURCE_GROUPS srcs)
   foreach(FILE ${srcs})
@@ -23,7 +32,7 @@ macro(SET_PLUGIN_SOURCE_GROUPS srcs)
 
     message(STATUS "${CMAKE_CURRENT_SOURCE_DIR}/")
     message(STATUS "${PARENT_DIR}")
-    
+
     # Remove the common directory prefix. What remains in the group.
     string(REPLACE "${CMAKE_CURRENT_SOURCE_DIR}/" "" GROUP "${PARENT_DIR}")
 

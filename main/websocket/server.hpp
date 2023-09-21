@@ -8,7 +8,7 @@
 #include <string>
 
 namespace network {
-typedef websocketpp::server<websocketpp::config::asio> server;
+typedef websocketpp::server<websocketpp::config::asio> server_t;
 using websocketpp::connection_hdl;
 using message_handler_t = std::function<void(connection_hdl hdl,
     const std::string&)>;
@@ -27,11 +27,11 @@ public:
 private:
   void OnOpen(connection_hdl hdl);
   void OnClose(connection_hdl hdl);
-  void OnMessage(connection_hdl hdl, server::message_ptr msg);
+  void OnMessage(connection_hdl hdl, server_t::message_ptr msg);
 
   std::thread runner_;
   message_handler_t on_message_;
   unsigned port_{};
-  server m_server;
+  server_t server_;
 };
 }  // namespace network

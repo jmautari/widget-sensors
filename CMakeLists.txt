@@ -32,6 +32,7 @@ include_directories(
   ${CMAKE_SOURCE_DIR}/third_party
   ${CMAKE_SOURCE_DIR}/third_party/asio/include
   ${CMAKE_SOURCE_DIR}/third_party/websocketpp
+  ${CMAKE_SOURCE_DIR}/third_party/json/single_include
 )
 
 # Allow relative include paths
