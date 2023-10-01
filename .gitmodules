@@ -1,6 +1,6 @@
 [submodule "third_party/fmt"]
 	path = third_party/fmt
-	url = https://github.com/fmtlib/fmt
+	url = https://github.com/fmtlib/fmt.git
 [submodule "third_party/websocketpp"]
 	path = third_party/websocketpp
 	url = https://github.com/zaphoyd/websocketpp.git
