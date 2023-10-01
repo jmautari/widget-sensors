@@ -18,6 +18,7 @@ include_directories(
   ${CMAKE_SOURCE_DIR}/main
   ${CMAKE_SOURCE_DIR}/third_party
   ${CMAKE_SOURCE_DIR}/third_party/asio/include
+  ${CMAKE_SOURCE_DIR}/third_party/fmt/include
   ${CMAKE_SOURCE_DIR}/third_party/websocketpp
   ${CMAKE_SOURCE_DIR}/third_party/json/single_include
   ${CMAKE_SOURCE_DIR}/third_party/PicoSHA2
