@@ -1,18 +1,18 @@
 #include "shared/platform.hpp"
 #include "shared/widget_plugin.h"
+#include "shared/string_util.h"
+#include "shared/power_util.hpp"
 #include "rtss/rtss.hpp"
 #include "websocket/server.hpp"
 #include <atlbase.h>
 #include <shellapi.h>
 #include <commctrl.h>
 #include <tlhelp32.h>
-#include <powrprof.h>
-#include <powersetting.h>
 #include "steam/sdk/include/steam_api.h"
 #include "steam/sdk/include/isteamapps.h"
 #include "nlohmann/json.hpp"
 #include <cmath>
-#include<iostream>
+#include <iostream>
 #include <unordered_map>
 #include <string>
 #include <tuple>
@@ -23,8 +23,6 @@
 #include <filesystem>
 #include <vector>
 
-#pragma comment(lib, "PowrProf.lib")
-
 #define WM_M_TRAY   WM_USER + 1
 #define ID_TRAY_ICON 100
 #define IDM_EXIT 1000
@@ -34,8 +32,6 @@
 #define IDM_CUSTOM_COMMAND 1010
 
 namespace {
-enum class PowerScheme { kPowerBalanced, kPowerUltimatePerformance };
-
 typedef BOOL(WINAPI* GUIDFromString_t)(LPCTSTR psz, LPGUID pguid);
 
 typedef HRESULT(WINAPI* LoadIconWithScaleDown_t)(HINSTANCE hinst,
@@ -60,7 +56,6 @@ using plugin_t = std::tuple<ScopedLoadLibrary,
     ExecuteCommand_t,
     ProfileChanged_t>;
 using plugin_list_t = std::unordered_map<std::string, plugin_t>;
-using profile_t = std::array<std::tuple<GUID, std::wstring, std::wstring>, 2>;
 
 constexpr wchar_t kHWINFO64Key[] = L"SOFTWARE\\HWiNFO64\\VSB";
 constexpr uint32_t kMaxKeys = 50;
@@ -105,10 +100,9 @@ std::unique_ptr<char[]> json_data;
 size_t current_size{ 2048 };
 size_t last_size{};
 std::array<std::array<std::unique_ptr<wchar_t[]>, 4>, kMaxKeys> keys;
-profile_t profiles;
 std::unordered_map<size_t, nlohmann::json> custom_commands;
+windows::PowerUtil power_util;
 
-std::wstring GuidToWstr(const GUID& guid);
 void AddMenu(HMENU hmenu, int& pos, nlohmann::json const& popup);
 
 inline constexpr auto get_value = [&](const wchar_t* k, wchar_t* data) {
@@ -158,33 +152,6 @@ void ReadRegistry(HKEY key, key_list_t& list) {
     get_value(keys[i][2].get(), std::get<2>(list[i]).get());
     //get_value(keys[i][3].get(), std::get<3>(list[i]).get());
   }
-}
-
-std::string wstring2string(const std::wstring& wstr) {
-  auto dest_size = WideCharToMultiByte(
-      CP_UTF8, 0, wstr.c_str(), -1, nullptr, 0, 0, 0);
-  if (dest_size > 0) {
-    std::vector<char> buffer(dest_size);
-    if (WideCharToMultiByte(
-            CP_UTF8, 0, wstr.c_str(), -1, buffer.data(), dest_size, 0, 0)) {
-      return std::string(buffer.data());
-    }
-  }
-
-  return std::string();
-}
-
-std::wstring string2wstring(const std::string& str) {
-  auto dest_size = MultiByteToWideChar(CP_UTF8, 0, str.c_str(), -1, nullptr, 0);
-  if (dest_size > 0) {
-    std::vector<wchar_t> buffer(dest_size);
-    if (MultiByteToWideChar(
-            CP_UTF8, 0, str.c_str(), -1, buffer.data(), dest_size)) {
-      return std::wstring(buffer.data());
-    }
-  }
-
-  return std::wstring();
 }
 
 bool IsRunning(HANDLE* mutex_handle) {
@@ -553,69 +520,6 @@ auto LoadPlugins(
   }
 }
 
-auto SetPowerScheme(PowerScheme k) {
-  if (std::get<0>(profiles[0]).Data1 == 0 ||
-      std::get<0>(profiles[1]).Data1 == 0) {
-    OutputDebugStringW(L"Invalid power profile");
-    return;
-  }
-
-  GUID guid;
-  std::wstring scheme;
-  std::wstring name;
-  switch (k) {
-    case PowerScheme::kPowerBalanced:
-      guid = std::get<0>(profiles[0]);
-      scheme = std::get<1>(profiles[0]);
-      name = std::get<2>(profiles[0]);
-      break;
-    case PowerScheme::kPowerUltimatePerformance:
-      guid = std::get<0>(profiles[1]);
-      scheme = std::get<1>(profiles[1]);
-      name = std::get<2>(profiles[1]);
-      break;
-    default:
-      return;
-  }
-
-  if (PowerSetActiveScheme(nullptr, &guid) == ERROR_SUCCESS) {
-    OutputDebugStringW((L"Set power scheme " + name).c_str());
-  } else {
-    OutputDebugStringW(
-        (L"Error setting power scheme to " + name).c_str());
-  }
-}
-
-bool EnumeratePowerProfiles(profile_t& profiles) {
-  GUID guid;
-  ULONG size = sizeof(guid);
-  int found = 0;
-
-  for (ULONG x = 0; x < 16; x++) {
-    if (PowerEnumerate(NULL, NULL, NULL, ACCESS_SCHEME, x,
-            reinterpret_cast<UCHAR*>(&guid), &size) != ERROR_SUCCESS)
-      break;
-
-    WCHAR nameBuffer[256];
-    DWORD bufferSize = sizeof(nameBuffer) / sizeof(nameBuffer[0]);
-
-    if (PowerReadFriendlyName(NULL, &guid, NULL, NULL,
-            reinterpret_cast<PUCHAR>(nameBuffer), &bufferSize) != ERROR_SUCCESS)
-      continue;
-
-    auto const name = std::wstring(nameBuffer);
-    if (name == L"Balanced") {
-      profiles[0] = std::make_tuple(guid, GuidToWstr(guid), name);
-      found++;
-    } else if (name == L"Ultimate Performance") {
-      profiles[1] = std::make_tuple(guid, GuidToWstr(guid), name);
-      found++;
-    }
-  }
-
-  return found == 2;
-}
-
 void OnProfileChanged(std::string const& pname) {
   for (auto& [plugin_name, p] : plugin_list) {
     auto const profile_changed = std::get<5>(p);
@@ -626,9 +530,6 @@ void OnProfileChanged(std::string const& pname) {
 }
 
 auto StartMonitoring(const wchar_t* data_dir) {
-  if (!EnumeratePowerProfiles(profiles))
-    OutputDebugStringW(L"Failure while enumerating power profiles");
-
   std::error_code ec;
   if (data_dir == nullptr || !std::filesystem::exists(data_dir, ec) ||
       !std::filesystem::is_directory(data_dir, ec))
@@ -788,7 +689,8 @@ auto StartMonitoring(const wchar_t* data_dir) {
       if (!pname.empty()) {
         if (current_profile.empty() || pname != current_profile) {
           OutputDebugStringW((L"Got new profile " + pname).c_str());
-          SetPowerScheme(PowerScheme::kPowerUltimatePerformance);
+          static_cast<void>(power_util.SetScheme(
+              windows::PowerScheme::kPowerUltimatePerformance));
           set_current_profile(pname);
           auto const app_image = MapExecutableToAppId(path, pname);
           app_poster = app_image.find("http") == 0 ? app_image : "";
@@ -813,7 +715,7 @@ auto StartMonitoring(const wchar_t* data_dir) {
         std::unique_lock lock(window_mutex);
         current_window_size = {};
 
-        SetPowerScheme(PowerScheme::kPowerBalanced);
+        //SetPowerScheme(PowerScheme::kPowerBalanced);
       }
 
       LONG width, height;
@@ -867,6 +769,7 @@ auto StartMonitoring(const wchar_t* data_dir) {
 
       prev_time = end_timer();
 
+      auto before_check = std::chrono::system_clock::now();
       for (;;) {
         wait_result = WaitForMultipleObjects(
             handles.size(), &handles[0], false, kIntervalMs >> 2);
@@ -882,9 +785,14 @@ auto StartMonitoring(const wchar_t* data_dir) {
           iter += 1.0;
           accum += prev_time;
 
-          registry_notify();
           break;
         }
+      }
+      auto after_check = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::system_clock::now() - before_check);
+      if (after_check.count() < kIntervalMs) {
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(kIntervalMs) - after_check);
       }
     } while (wait_result == WAIT_OBJECT_0);
   } while (false);
@@ -952,16 +860,6 @@ void CopyCurrentData() {
     SetClipboardData(CF_TEXT, hglbCopy);
   } while (false);
   CloseClipboard();
-}
-
-std::wstring GuidToWstr(const GUID& guid) {
-  wchar_t guid_cstr[39];
-  _snwprintf_s(guid_cstr, _countof(guid_cstr), _TRUNCATE,
-      L"{%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x}", guid.Data1,
-      guid.Data2, guid.Data3, guid.Data4[0], guid.Data4[1], guid.Data4[2],
-      guid.Data4[3], guid.Data4[4], guid.Data4[5], guid.Data4[6],
-      guid.Data4[7]);
-  return guid_cstr;
 }
 
 void ExecuteCustomCommand(size_t index) {
@@ -1052,6 +950,20 @@ void GetMenuOptions(HMENU hmenu, int& pos) {
   }
 }
 
+auto FindStreamDeck() {
+  HWND w = (HWND)0x50CC8;
+  return w;
+}
+
+void SendPowerBroadcastMessage(bool suspending){
+  auto wnd = FindStreamDeck();
+  if (wnd == nullptr)
+    return;
+
+  UINT e = suspending ? PBT_APMSUSPEND : PBT_APMRESUMEAUTOMATIC;
+  PostMessage(wnd, WM_POWERBROADCAST, e, 0);
+}
+
 LRESULT CALLBACK WndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam) {
   PAINTSTRUCT ps;
   HDC hdc;
@@ -1071,11 +983,13 @@ LRESULT CALLBACK WndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam) {
             break;
           }
           case IDM_SET_BALANCED_PF: {
-            SetPowerScheme(PowerScheme::kPowerBalanced);
+            static_cast<void>(
+                power_util.SetScheme(windows::PowerScheme::kPowerBalanced));
             break;
           }
           case IDM_SET_ULTIMATE_PERFORMANCE_PF: {
-            SetPowerScheme(PowerScheme::kPowerUltimatePerformance);
+            static_cast<void>(power_util.SetScheme(
+                windows::PowerScheme::kPowerUltimatePerformance));
             break;
           }
           default: {
@@ -1121,17 +1035,11 @@ LRESULT CALLBACK WndProc(HWND window, UINT msg, WPARAM wParam, LPARAM lParam) {
           InsertMenu(hmenu, pos++, MF_BYPOSITION | MF_STRING, IDM_EXIT,
               L"Stop monitoring");
 
-          GUID *guid;
-          if (PowerGetActiveScheme(nullptr, &guid) == ERROR_SUCCESS) {
-            const auto scheme = GuidToWstr(*guid);
-            int index = scheme == std::get<1>(profiles[0]) ? IDM_SET_BALANCED_PF
-                        : scheme == std::get<1>(profiles[1])
-                            ? IDM_SET_ULTIMATE_PERFORMANCE_PF
-                            : -1;
-            if (index != -1)
-              CheckMenuItem(hmenu, index, MF_BYCOMMAND | MF_CHECKED);
-
-            LocalFree(guid);
+          auto index = power_util.GetProfileIndex();
+          if (index != -1) {
+            int p[] = { IDM_SET_BALANCED_PF, IDM_SET_ULTIMATE_PERFORMANCE_PF };
+            if (index < _countof(p))
+              CheckMenuItem(hmenu, p[index], MF_BYCOMMAND | MF_CHECKED);
           }
 
           SetForegroundWindow(hwnd);
@@ -1205,7 +1113,7 @@ int WINAPI wWinMain(HINSTANCE hInstance,
   }
 
   int argc;
-  auto const argv = CommandLineToArgvW(pCmdLine, &argc);
+  auto const argv = CommandLineToArgvW(GetCommandLineW(), &argc);
 
   if (!CreateWindowResources(hInstance))
     return 1;

@@ -3,23 +3,23 @@ cmake_minimum_required(VERSION 3.15.1)
 # Only generate Debug and Release configuration types.
 set(CMAKE_CONFIGURATION_TYPES Debug Release)
 
-set(PROJECT_FOLDER "main")
+set(PROJECT_FOLDER "power")
 
 # Project name.
-project(widget-sensors)
+project(power)
 
 # Target executable names.
-set(MAIN_TARGET "widget-sensors")
+set(MAIN_TARGET "power")
 
 set(OS_WINDOWS 1)
 
-add_subdirectory(./third_party/websocketpp)
+message(STATUS "${PROJECT_FOLDER}")
 
 # Main executable sources.
 file(GLOB_RECURSE MAIN_SRCS
-  ${PROJECT_FOLDER}/*.h
-  ${PROJECT_FOLDER}/*.hpp
-  ${PROJECT_FOLDER}/*.cpp
+  ${CMAKE_SOURCE_DIR}/${PROJECT_FOLDER}/*.h
+  ${CMAKE_SOURCE_DIR}/${PROJECT_FOLDER}/*.hpp
+  ${CMAKE_SOURCE_DIR}/${PROJECT_FOLDER}/*.cpp
 )
 
 # Shared code components with the main project.
@@ -31,10 +31,8 @@ file(GLOB_RECURSE SHARED_SRCS
 
 # Add additional include directories
 include_directories(
-  ${CMAKE_SOURCE_DIR}/main
+  ${CMAKE_SOURCE_DIR}/power
   ${CMAKE_SOURCE_DIR}/third_party
-  ${CMAKE_SOURCE_DIR}/third_party/asio/include
-  ${CMAKE_SOURCE_DIR}/third_party/websocketpp
   ${CMAKE_SOURCE_DIR}/third_party/json/single_include
 )
 
@@ -105,7 +103,7 @@ SET_APP_SOURCE_GROUPS("${MAIN_SRCS}")
 
 # Manifest files used for executables.
 set(MAIN_EXE_MANIFEST
-  main/resources/win/main.exe.manifest
+  resources/win/main.exe.manifest
   )
 
 add_definitions(-DUNICODE -D_UNICODE)
@@ -117,8 +115,7 @@ SET_APP_EXECUTABLE_TARGET_PROPERTIES(${MAIN_TARGET})
 # Set additional compile & link options
 target_compile_options(${MAIN_TARGET} PRIVATE "$<$<CONFIG:DEBUG>:/MDd>")
 target_compile_options(${MAIN_TARGET} PRIVATE "$<$<CONFIG:RELEASE>:/MD>" "$<$<CONFIG:RELEASE>:/Zi>")
-target_compile_definitions(${MAIN_TARGET} PRIVATE FMT_HEADER_ONLY OS_WIN _WIN32_IE=0x0600 _WIN32_WINNT=0x0A00 WINVER=0x0A00 ASIO_STANDALONE _WEBSOCKETPP_CPP11_TYPE_TRAITS_)
-target_link_directories(${MAIN_TARGET} PRIVATE ${CMAKE_SOURCE_DIR}/third_party/steam/sdk/redistributable_bin/win64)
+target_compile_definitions(${MAIN_TARGET} PRIVATE FMT_HEADER_ONLY OS_WIN _WIN32_IE=0x0600 _WIN32_WINNT=0x0A00 WINVER=0x0A00)
 
 set_target_properties(${MAIN_TARGET} PROPERTIES LINK_FLAGS /SUBSYSTEM:WINDOWS)
 
@@ -129,7 +126,6 @@ target_link_options(${MAIN_TARGET} PRIVATE "$<$<CONFIG:RELEASE>:/DEBUG>" "$<$<CO
 
 # Add required libs below
 target_link_libraries(${MAIN_TARGET} PRIVATE
-  crypt32 steam_api64
 )
 
 # Add the custom Windows manifest files to the executable.
@@ -141,23 +137,3 @@ add_custom_command(
           -outputresource:"${APP_TARGET_OUT_DIR}/${MAIN_TARGET}.exe"\;\#1
   COMMENT "Adding manifest..."
   )
-
-# Copy resources directory.
-add_custom_command(
-TARGET ${MAIN_TARGET}
-POST_BUILD
-COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_CURRENT_SOURCE_DIR}/main/resources/win/steam"
-        "${APP_TARGET_OUT_DIR}"
-VERBATIM
-)
-
-# Add plugins
-
-message(STATUS "Adding plugins")
-add_subdirectory(plugins)
-
-# Add helper programs
-
-message(STATUS "Adding helper programs")
-add_subdirectory(power)
