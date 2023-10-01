@@ -22,7 +22,7 @@ public:
   [[nodiscard]] int GetProfileIndex() const;
 
 private:
-  [[nodiscard]] bool EnumerateProfiles(power_profile_t& profiles);
+  [[nodiscard]] bool EnumerateProfiles();
 
   power_profile_t profiles_;
   bool init_ {};

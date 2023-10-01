@@ -4,7 +4,7 @@
 
 namespace windows {
 PowerUtil::PowerUtil() {
-  if (!EnumerateProfiles(profiles_)) {
+  if (!EnumerateProfiles()) {
     OutputDebugStringW(L"Failure while enumerating power profiles_");
     return;
   }
@@ -50,7 +50,7 @@ bool PowerUtil::SetScheme(PowerScheme k) const {
   return false;
 }
 
-bool PowerUtil::EnumerateProfiles(power_profile_t& profiles_) {
+bool PowerUtil::EnumerateProfiles() {
   GUID guid;
   ULONG size = sizeof(guid);
   int found = 0;
