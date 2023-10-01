@@ -8,6 +8,11 @@ using websocketpp::lib::placeholders::_1;
 using websocketpp::lib::placeholders::_2;
 using websocketpp::lib::bind;
 
+constexpr char kEventStreamStateChanged[] = { "StreamStateChanged" };
+constexpr char kEventReplayBufferStateChanged[] = {
+  "ReplayBufferStateChanged"
+};
+
 ObsWebClient::ObsWebClient(std::string host,
     unsigned port,
     std::string password)
@@ -21,9 +26,16 @@ ObsWebClient::ObsWebClient(std::string host,
   client_.set_access_channels(websocketpp::log::elevel::info);
 
   client_.set_message_handler(bind(&ObsWebClient::OnMessage, this, _1, _2));
+
+  event_handlers_.emplace(kEventStreamStateChanged,
+      [this](auto&& d) { return StreamStateChanged(d); });
+  event_handlers_.emplace(kEventReplayBufferStateChanged,
+      [this](auto&& d) { return ReplayBufferStateChanged(d); });
 }
 
 ObsWebClient::~ObsWebClient() {
+  OutputDebugStringA(__FUNCTION__);
+  client_.stop();
   runner_.join();
 }
 
@@ -91,7 +103,7 @@ bool ObsWebClient::Request(std::string const& cmd,
     client_.send(server_, j.dump(), websocketpp::frame::opcode::TEXT);
     return true;
   } catch (...) {
-    OutputDebugStringW(L"Error sending request to server");
+    OutputDebugStringW(L"Error sending request to server!");
   }
   return false;
 }
@@ -114,6 +126,44 @@ void ObsWebClient::OnClose(connection_hdl hdl) {
   std::cout << "Server connection closed" << std::endl;
 }
 
+bool ObsWebClient::StreamStateChanged(nlohmann::json const& event_data) {
+  state_.streaming = event_data["outputActive"];
+  if (!state_.streaming)
+    return true;
+
+  StopReplayBuffer();
+  return true;
+}
+
+bool ObsWebClient::ReplayBufferStateChanged(nlohmann::json const& event_data) {
+  state_.replay_buffer = event_data["outputActive"];
+  if (!state_.replay_buffer)
+    return true;
+
+  StopStream();
+  return true;
+}
+
+void ObsWebClient::StopStream() {
+  if (state_.streaming)
+    Request("StopStream");
+}
+
+void ObsWebClient::StopReplayBuffer() {
+  if (state_.replay_buffer)
+    Request("StopReplayBuffer");
+}
+
+bool ObsWebClient::HandleEvent(nlohmann::json const& json) {
+  std::string const event_type = json["d"]["eventType"];
+  auto const event_data = json["d"]["eventData"];
+  auto it = event_handlers_.find(event_type);
+  if (it == event_handlers_.end())
+    return true;
+
+  return it->second(event_data);
+}
+
 bool ObsWebClient::HandleResponse(connection_hdl hdl,
     client_t::message_ptr msg) {
   nlohmann::json r;
@@ -124,22 +174,33 @@ bool ObsWebClient::HandleResponse(connection_hdl hdl,
     auto j = nlohmann::json::parse(m);
     int op = j["op"];
     switch (op) {
-      case 0:
+      case 0:  // Hello
+      {
         r["op"] = 1;
         r["d"]["rpcVersion"] = j["d"]["rpcVersion"];
         if (j["d"].contains("authentication"))
           r["d"]["authentication"] = GeneratePaswordHash(
               j["d"]["authentication"]);
-        r["d"]["eventSubscriptions"] = 2;
+        // General (1)
+        // Config (2)
+        // Outputs (64)
+        r["d"]["eventSubscriptions"] = 67;
 
         std::string const& rm = r.dump();
         Send(hdl, rm.c_str(), rm.size());
         return true;
+      }
+      case 5:  // Event
+        return HandleEvent(j);
     }
   } catch (...) {
     OutputDebugStringW(L"Error processing response");
   }
   return false;
+}
+
+void ObsWebClient::StartReplayBuffer() {
+  static_cast<void>(Request("StartReplayBuffer"));
 }
 
 std::string ObsWebClient::GeneratePaswordHash(
