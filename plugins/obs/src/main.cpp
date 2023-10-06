@@ -23,6 +23,7 @@ struct {
   std::string host;
   int port{};
   std::string password;
+  bool stop_replay_on_streaming{};
 } obs_config;
 std::unique_ptr<network::ObsWebClient> obs;
 std::promise<void> cancel_stop_buffer;
@@ -57,12 +58,14 @@ bool DECLDLL PLUGIN InitPlugin(const std::filesystem::path& data_dir,
     std::string host = cfg["host"];
     int port = cfg["port"];
     std::string pwd = cfg["password"];
+    bool stop_replay = cfg.contains("stopReplay") ? cfg["stopReplay"] : true;
     if (host.empty() || port < 0 || port >= 30000 || pwd.empty())
       return false;
 
     obs_config.host = std::move(host);
     obs_config.port = port;
     obs_config.password = std::move(pwd);
+    obs_config.stop_replay_on_streaming = stop_replay;
 
     StartObsWebSocketClient();
   } catch (...) {
@@ -79,7 +82,7 @@ std::wstring DECLDLL PLUGIN GetValues(const std::wstring& profile_name) {
   auto const& state = obs->GetOutputState();
   return string2wstring(fmt::format(
       "\"obs=>streaming\":{{\"sensor\":\"streaming\",\"value\":{}}}",
-      state.streaming));
+      state.streaming ? "true" : "false"));
 }
 
 void DECLDLL PLUGIN ShutdownPlugin() {
@@ -114,6 +117,9 @@ bool DECLDLL PLUGIN ExecuteCommand(const std::string& command) {
 }
 
 void DECLDLL PLUGIN ProfileChanged(const std::string& pname) {
+#if !defined(START_REPLAY_UPON_GAME_LAUNCH)
+  return;
+#else
   if (obs == nullptr)
     return;
 
@@ -146,6 +152,7 @@ void DECLDLL PLUGIN ProfileChanged(const std::string& pname) {
 
   cancel_stop_buffer = std::promise<void>();
   future = cancel_stop_buffer.get_future();
+#endif
 }
 // End exported functions
 
