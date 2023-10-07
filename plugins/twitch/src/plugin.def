@@ -1,0 +1,7 @@
+EXPORTS
+
+InitPlugin @1
+GetValues @2
+ShutdownPlugin @3
+ExecuteCommand @4
+ProfileChanged @5
