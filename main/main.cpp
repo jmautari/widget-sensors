@@ -516,7 +516,8 @@ auto LoadPlugins(
     if (LoadPlugin(e, data_dir, debug_mode))
       OutputDebugStringW(L"Plugin loaded successfully");
     else
-      OutputDebugStringW(L"Could not load plugin");
+      OutputDebugStringW(
+          (L"Could not load plugin from " + e.path().wstring()).c_str());
   }
 }
 
@@ -527,6 +528,19 @@ void OnProfileChanged(std::string const& pname) {
       profile_changed(pname);
     }
   }
+}
+
+BOOL WINAPI Shutdown(DWORD) {
+  for (auto& [plugin_name, p] : plugin_list) {
+    auto const shutdown = std::get<3>(p);
+    if (shutdown != nullptr) {
+      OutputDebugStringA(("Shutting down plugin " + plugin_name).c_str());
+      shutdown();
+    }
+  }
+
+  CloseHandle(instance_mutex);
+  return TRUE;
 }
 
 auto StartMonitoring(const wchar_t* data_dir) {
@@ -808,19 +822,10 @@ auto StartMonitoring(const wchar_t* data_dir) {
 
   DeleteCriticalSection(&cs);
 
+  Shutdown(0);
+
   std::cout << std::endl << "Exiting..." << std::endl;
   return result;
-}
-
-BOOL WINAPI Shutdown(DWORD) {
-  for (auto& [plugin_name, p] : plugin_list) {
-    auto const shutdown = std::get<3>(p);
-    if (shutdown != nullptr)
-      shutdown();
-  }
-
-  CloseHandle(instance_mutex);
-  return TRUE;
 }
 
 void RemoveTrayIcon() {
