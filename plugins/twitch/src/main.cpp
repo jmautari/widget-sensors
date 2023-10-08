@@ -1,4 +1,5 @@
 #include "shared/platform.hpp"
+#include "shared/simple_db.hpp"
 #include "shared/string_util.h"
 #include "shared/widget_plugin.h"
 #include "twitch.hpp"
@@ -19,6 +20,8 @@
 
 namespace {
 constexpr wchar_t kConfigFile[]{ L"twitch.json" };
+constexpr wchar_t kGamesDbFile[]{ L"games_db.json" };
+
 constexpr char kDefaultIp[]{ "0.0.0.0" };
 constexpr int kDefaultPort = 30000;
 
@@ -33,6 +36,7 @@ struct {
 } twitch_config;
 std::unique_ptr<network::TwitchClient> twitch;
 std::filesystem::path data_dir;
+core::SimpleDb game_db;
 
 template<typename T>
 T GetConfigOrDefaultValue(nlohmann::json const& j,
@@ -124,6 +128,7 @@ bool DECLDLL PLUGIN InitPlugin(const std::filesystem::path& d,
   OutputDebugStringW(__FUNCTIONW__);
   data_dir = d;
   auto config_file = data_dir / kConfigFile;
+  auto db_file = data_dir / kGamesDbFile;
   std::error_code ec;
   if (!std::filesystem::exists(config_file, ec))
     return false;
@@ -142,6 +147,11 @@ bool DECLDLL PLUGIN InitPlugin(const std::filesystem::path& d,
       OutputDebugStringW(L"Invalid config");
       return false;
     }
+
+    if (!game_db.Load(db_file, true))
+      OutputDebugStringA("Could not load games database");
+    else
+      OutputDebugStringA("Games database loaded successfully");
 
     twitch_config.client_id = std::move(client_id);
     twitch_config.secret = std::move(secret);
@@ -209,29 +219,64 @@ void DECLDLL PLUGIN ProfileChanged(const std::string& pname) {
 
   try {
     std::filesystem::path p = pname;
-    auto game = FindGame(p.wstring());
+    std::string exe = p.filename().u8string();
+    auto const& game_data = game_db.Find(
+        [&](auto&& it) { return exe == it["exe"]; });
+    std::string const game = game_data.is_null() ? FindGame(p.wstring())
+                                                 : game_data["name"];
     if (!game.empty()) {
       auto i = twitch->GetGameInfo(game);
       if (!i.contains("data") || !i["data"].is_array()) {
-        OutputDebugStringA(("No data for " + game).c_str());
+        file << "No data for " << game << std::endl;
         return;
       }
 
-      auto a = i["data"][0];
-      std::string game_id = a["id"];
+      nlohmann::json item;
+      std::string game_id;
+      if (i["data"].size() > 0 && !i["data"][0].is_null()) {
+        item = i["data"][0];
+        game_id = item["id"];
+      }
 
-      if (game_id.empty())
+      if (game_id.empty()) {
+        file << "ID is empty for " << game << std::endl;
         return;
+      }
 
-      file << "Game: " << game << " ID: " << game_id << std::endl;
+      std::string title;
+      auto& data = game_db.Find([&](auto&& it) {
+        std::string const id = it["id"];
+        return id == game_id;
+      });
+      if (data.is_null()) {
+        title = item["name"];
+        file << "Adding game " << game << " ID: " << game_id << std::endl;
+        // clang-format off
+        // "box_art_url":"https://static-cdn.jtvnw.net/ttv-boxart/515025-{width}x{height}.jpg","id":"515025","igdb_id":"125174","name":"Overwatch 2
+        // clang-format on
+        item["exe"] = exe;
+        item["title"] = item["name"];
+        if (game_db.Add(std::move(item))) {
+          if (!game_db.Save())
+            file << "Could not save data" << std::endl;
+          else
+            file << "Item added successfully" << std::endl;
+        } else {
+          file << "Could not add item" << std::endl;
+        }
+      } else {
+        title = data["title"];
+        file << "Found " << game << " Title: " << title << " ID: " << game_id
+             << std::endl;
+      }
 
       OutputDebugStringA(("Starting " + game + " id: " + game_id).c_str());
-      twitch->SetBroadcastInfo(game_id, game);
+      twitch->SetBroadcastInfo(game_id, title);
     } else {
-      OutputDebugStringA(("Game " + pname + " not found!").c_str());
+      file << "Profile for " << pname << " was not found!" << std::endl;
     }
   } catch (...) {
-    OutputDebugStringA("Error processing game");
+    file << "Error processing game" << std::endl;
   }
 }
 // End exported functions
