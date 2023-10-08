@@ -20,7 +20,10 @@ set(MAIN_SRCS
 )
 
 # Shared code components with the main project.
-set(SHARED_SRCS
+file(GLOB_RECURSE SHARED_SRCS
+  ${CMAKE_SOURCE_DIR}/shared/*.h
+  ${CMAKE_SOURCE_DIR}/shared/*.hpp
+  ${CMAKE_SOURCE_DIR}/shared/*.cpp
 )
 
 link_directories(
