@@ -14,9 +14,14 @@ file(GLOB_RECURSE ALL_SRCS
   ${PROJECT_FOLDER}/*.cpp
 )
 
+file(GLOB_RECURSE RESOURCES_SRCS
+  ${CMAKE_CURRENT_SOURCE_DIR}/resources/*.*
+  )
+
 # Main executable sources.
 set(MAIN_SRCS
   ${ALL_SRCS}
+  ${RESOURCES_SRCS}
 )
 
 # Shared code components with the main project.
@@ -28,6 +33,11 @@ file(GLOB_RECURSE SHARED_SRCS
 
 link_directories(
 )
+
+# Manifest files used for executables.
+set(MAIN_EXE_MANIFEST
+  resources/win/main.exe.manifest
+  )
 
 message(STATUS "Creating project")
 
@@ -71,3 +81,12 @@ target_link_options(${MAIN_TARGET} PRIVATE "$<$<CONFIG:RELEASE>:/DEBUG>" "$<$<CO
 target_link_libraries(${MAIN_TARGET} PRIVATE
   crypt32 libssl.lib libcrypto.lib nvapi64
 )
+
+add_custom_command(
+  TARGET ${MAIN_TARGET}
+  POST_BUILD
+  COMMAND "mt.exe" -nologo
+          -manifest \"${CMAKE_CURRENT_SOURCE_DIR}/${MAIN_EXE_MANIFEST}\"
+          -outputresource:"${APP_TARGET_OUT_DIR}/${MAIN_TARGET}.dll"\;\#1
+  COMMENT "Adding manifest..."
+  )

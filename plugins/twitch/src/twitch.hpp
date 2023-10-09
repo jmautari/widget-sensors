@@ -1,7 +1,9 @@
 #pragma once
+#include "shared/resource_util.hpp"
 #include <cpp-httplib/httplib.h>
 #include <nlohmann/json.hpp>
 #include <string>
+#include <filesystem>
 
 namespace network {
 class TwitchUser {
@@ -22,8 +24,6 @@ private:
 
 class TwitchGame {
 public:
-  TwitchGame() = default;
-
   nlohmann::json GetGameInfo(std::string const& game_name,
       std::string const& client_id,
       std::string const& jwt);
@@ -34,7 +34,7 @@ private:
 
 class TwitchClient {
 public:
-  TwitchClient() = default;
+  TwitchClient(std::filesystem::path data_dir);
   ~TwitchClient();
 
   void StartListen(std::string client_id,
@@ -63,14 +63,23 @@ public:
   [[nodiscard]] nlohmann::json GetGameInfo(const std::string& game_name);
 
   void SetBroadcastInfo(const std::string& game_id,
-      const std::string& title = {});
+      const std::string& title = {}) const;
+
+  [[nodiscard]] std::string const& GetAccessToken() const {
+    return jwt_;
+  }
 
 private:
   void RegisterEndpoints();
 
   void Authorize(const httplib::Request& req, httplib::Response& res);
+  void Console(const httplib::Request& req, httplib::Response& res);
+
   void ExchangeCodeWithToken(std::string const& code, httplib::Response& res);
 
+  std::string GetContent(int resource_id, const nlohmann::json& vars) const;
+
+  std::filesystem::path data_dir_;
   std::thread runner_;
   std::string client_id_;
   std::string secret_;
@@ -84,5 +93,11 @@ private:
   httplib::Server server_;
   std::unique_ptr<TwitchUser> user_;
   TwitchGame game_;
+  windows::EmbeddedResource resource_;
+
+  std::unordered_map<std::string, std::function<void(nlohmann::json const&)>>
+      commands_;
+  void OpenConsole(nlohmann::json const& params);
+  void OpenFile(nlohmann::json const& params);
 };
 }  // namespace network

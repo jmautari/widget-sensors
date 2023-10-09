@@ -1,17 +1,46 @@
 #include "twitch.hpp"
+#include "shared/string_util.h"
+#include "shared/parser_util.hpp"
+#include "shared/shell_util.hpp"
+#include "../resources/win/resource.h"
 #include "fmt/format.h"
 #include <random>
+#include <regex>
 #include <sstream>
 
+#define ADD_COMMAND(cmd) commands_[#cmd] = [this](auto&& json) { cmd(json); }
+
+extern HINSTANCE hInstance;
+
 namespace network {
-constexpr char kTwitchIdHost[]{ "https://id.twitch.tv" };
-constexpr char kTwitchApiHost[]{ "https://api.twitch.tv" };
-constexpr char kTwitchAuthEndpoint[]{ "/oauth2/authorize" };
-constexpr char kTwitchGetTokenEndpoint[]{ "/oauth2/token" };
-constexpr char kTwitchScope[]{ "channel%3Amanage%3Abroadcast" };
-constexpr char kTwitchUserEndpoint[]{ "/helix/users" };
-constexpr char kTwitchGamesEndpoint[]{ "/helix/games" };
-constexpr char kTwitchChannelsEndpoint[]{ "/helix/channels" };
+namespace resource {
+constexpr int kConsoleHtml = IDC_CONSOLE_HTML;
+}  // namespace resource
+
+struct Twitch {
+  struct Host {
+    static constexpr char kIdHost[] = "https://id.twitch.tv";
+    static constexpr char kApiHost[] = "https://api.twitch.tv";
+  };
+  struct Endpoint {
+    static constexpr char kAuth[] = "/oauth2/authorize";
+    static constexpr char kGetToken[] = "/oauth2/token";
+    static constexpr char kUsers[] = "/helix/users";
+    static constexpr char kGames[] = "/helix/games";
+    static constexpr char kChannels[] = "/helix/channels";
+  };
+  static constexpr char kScope[] = "channel%3Amanage%3Abroadcast";
+};
+
+constexpr char kTextPlain[] = "text/plain";
+constexpr char kTextHtml[] = "text/html";
+constexpr char kApplicationUrlEncode[] = "application/x-www-form-urlencoded";
+
+TwitchClient::TwitchClient(std::filesystem::path data_dir)
+    : data_dir_(data_dir), resource_{ hInstance } {
+  ADD_COMMAND(OpenConsole);
+  ADD_COMMAND(OpenFile);
+}
 
 TwitchClient::~TwitchClient() {
   OutputDebugStringA(__FUNCTION__);
@@ -60,8 +89,8 @@ std::string TwitchClient::GetAuthenticationUrl() {
   state_ = fmt::format("{}", std::hash<std::string>{}(s.str()));
   return fmt::format(
       "{}{}?response_type=code&client_id={}&redirect_uri={}&scope={}&state={}",
-      kTwitchIdHost, kTwitchAuthEndpoint, client_id_, GetRedirUrl(),
-      kTwitchScope, state_);
+      Twitch::Host::kIdHost, Twitch::Endpoint::kAuth, client_id_, GetRedirUrl(),
+      Twitch::kScope, state_);
 }
 
 nlohmann::json TwitchClient::GetGameInfo(const std::string& game_name) {
@@ -72,17 +101,39 @@ nlohmann::json TwitchClient::GetGameInfo(const std::string& game_name) {
 bool TwitchClient::Request(std::string const& cmd,
     nlohmann::json const& params) {
   try {
-    nlohmann::json j;
+    if (auto fn = commands_.find(cmd); fn != commands_.end())
+      fn->second(params);
+
     return true;
   } catch (...) {
-    OutputDebugStringW(L"Error sending request to server!");
+    OutputDebugStringW(L"Error processing request!");
   }
   return false;
 }
 
+void TwitchClient::OpenConsole(nlohmann::json const& params) {
+  static_cast<void>(util::OpenViaShell(
+      L"http://localhost:" + std::to_wstring(port_) + L"/console"));
+}
+
+void TwitchClient::OpenFile(nlohmann::json const& params) {
+  std::filesystem::path file;
+  try {
+    std::error_code ec;
+    file = data_dir_ / params["file"];
+    if (std::filesystem::exists(file, ec)) {
+      static_cast<void>(util::OpenViaShell(L"file:///" + file.wstring()));
+    } else {
+      OutputDebugStringW(
+          (L"File " + file.wstring() + L" does not exist").c_str());
+    }
+  } catch (...) {
+    OutputDebugStringW((L"Error opening file " + file.wstring()).c_str());
+  }
+}
+
 void TwitchClient::Authorize(const httplib::Request& req,
     httplib::Response& res) {
-  OutputDebugStringA(__FUNCTION__);
   /*
     code=gulfwdmys5lsm6qyz4xiz9q32l10
     &scope=channel%3Amanage%3Apolls+channel%3Aread%3Apolls
@@ -93,7 +144,7 @@ void TwitchClient::Authorize(const httplib::Request& req,
   std::string state = req.get_param_value("state");
 
   if (code.empty() || scope.empty() || state != state_) {
-    res.set_content("Access denied or invalid response", "text/plain");
+    res.set_content("Access denied or invalid response", kTextPlain);
     return;
   }
 
@@ -109,27 +160,23 @@ void TwitchClient::ExchangeCodeWithToken(std::string const& code,
     &grant_type=authorization_code
     &redirect_uri=http://localhost:3000
   */
-  httplib::Client cli(kTwitchIdHost);
+  httplib::Client cli(Twitch::Host::kIdHost);
   std::ostringstream o;
-  o << "client_id=" << client_id_;
-  o << "&client_secret=" << secret_;
-  o << "&code=" << code;
-  o << "&grant_type=authorization_code";
-  o << "&redirect_uri=" << fmt::format("http://localhost:{}/authorize", port_);
+  o << "client_id=" << client_id_ << "&client_secret=" << secret_
+    << "&code=" << code << "&grant_type=authorization_code"
+    << "&redirect_uri=http://localhost:" << port_ << "/authorize";
   auto response = cli.Post(
-      kTwitchGetTokenEndpoint, o.str(), "application/x-www-form-urlencoded");
+      Twitch::Endpoint::kGetToken, o.str(), kApplicationUrlEncode);
 
   if (response && response->status == 200) {
     try {
       auto json = nlohmann::json::parse(response->body);
       if (json.contains("access_token") && json["access_token"].is_string()) {
         jwt_ = json["access_token"];
-        res.set_content("You can close this tab now", "text/plain");
+        res.set_content("You can close this tab now", kTextPlain);
         res.status = 200;
 
         user_ = std::make_unique<TwitchUser>(client_id_, jwt_);
-
-        OutputDebugStringA(jwt_.c_str());
         return;
       }
     } catch (...) {
@@ -139,21 +186,99 @@ void TwitchClient::ExchangeCodeWithToken(std::string const& code,
   res.status = 403;
   res.set_content(
       fmt::format("Not authorized\n{}", response ? response->body : "null"),
-      "text/plain");
+      kTextPlain);
+}
+
+std::string TwitchClient::GetContent(int resource_id,
+    const nlohmann::json& vars) const {
+  util::Parser parser;
+  auto contents = resource_.GetResourceById(resource_id);
+  parser.Replace(contents, vars);
+  return contents;
+}
+
+void TwitchClient::Console(const httplib::Request& req,
+    httplib::Response& res) {
+  if (req.method == "GET") {
+    std::string user_id = user_->GetUserInfo()["data"][0]["id"];
+    nlohmann::json const vars{ { "client_id", client_id_ },
+      { "access_token", jwt_ }, { "user_id", std::move(user_id) },
+      { "host", Twitch::Host::kApiHost }, { "port", port_ } };
+    res.set_content(GetContent(resource::kConsoleHtml, vars), kTextHtml);
+    return;
+  }
+
+  std::string url = req.get_param_value("url");
+  std::string method = req.get_param_value("method");
+  std::string body = req.get_param_value("body");
+
+  auto host = [&url]() -> std::string {
+    if (auto p = url.find('/', 8); p != std::string::npos)
+      return url.substr(0, p);
+    return "";
+  }();
+  auto path = [&url]() -> std::string {
+    if (auto p = url.find('/', 8); p != std::string::npos)
+      return url.substr(p);
+    return "";
+  }();
+
+  if (host.empty() || path.empty() || method.empty()) {
+    res.set_content("Bad request", kTextPlain);
+    res.status = 400;
+    return;
+  }
+
+  httplib::Client cli(host);
+  httplib::Headers headers;
+  headers.emplace("Client-Id", client_id_);
+  headers.emplace("Authorization", fmt::format("Bearer {}", jwt_));
+
+  std::string response;
+  int status = 404;
+  const auto extract_response = [&](auto&& res) {
+    if (res) {
+      status = res->status;
+      if (status == 200)
+        response = res->body;
+    }
+  };
+  try {
+    if (method == "GET") {
+      extract_response(cli.Get(path, headers));
+    } else if (method == "POST") {
+      extract_response(cli.Post(path, headers, body, kApplicationUrlEncode));
+    } else if (method == "PATCH") {
+      extract_response(cli.Patch(path, headers, body, kApplicationUrlEncode));
+    } else if (method == "PUT") {
+      extract_response(cli.Put(path, headers, body, kApplicationUrlEncode));
+    } else if (method == "DELETE") {
+      extract_response(cli.Delete(path, headers, body, kApplicationUrlEncode));
+    }
+  } catch (...) {
+  }
+
+  res.set_content(response, kTextPlain);
+  res.status = status;
 }
 
 void TwitchClient::RegisterEndpoints() {
   server_.Get("/", [](const httplib::Request&, httplib::Response& res) {
-    res.set_content("Hello!", "text/plain");
+    res.set_content("Hello!", kTextPlain);
   });
 
   server_.Get(
       "/authorize", [this](const httplib::Request& req,
                         httplib::Response& res) { Authorize(req, res); });
+
+  server_.Get("/console", [this](const httplib::Request& req,
+                              httplib::Response& res) { Console(req, res); });
+  server_.Post("/console", [this](const httplib::Request& req,
+                               httplib::Response& res) { Console(req, res); });
 }
 
 void TwitchClient::SetBroadcastInfo(const std::string& game_id,
-    const std::string& title) {
+    const std::string& title) const {
   auto user = user_->GetUserInfo();
   if (!user.contains("data") || !user["data"].is_array())
     return;
@@ -164,30 +289,29 @@ void TwitchClient::SetBroadcastInfo(const std::string& game_id,
   if (!title.empty())
     s << "&title=" << title;
 
-  httplib::Client cli(kTwitchApiHost);
+  httplib::Client cli(Twitch::Host::kApiHost);
   httplib::Headers headers;
   headers.emplace("Client-Id", client_id_);
   headers.emplace("Authorization", fmt::format("Bearer {}", jwt_));
   try {
-
-  auto res = cli.Patch(
-      fmt::format("{}?broadcaster_id={}", kTwitchChannelsEndpoint, user_id),
-      headers, s.str(), "application/x-www-form-urlencoded");
-  if (!res)
-    OutputDebugStringA("Can't set broadcast info");
-  else
-    OutputDebugStringA("Broadcast info set successfully");
+    auto res = cli.Patch(fmt::format("{}?broadcaster_id={}",
+                             Twitch::Endpoint::kChannels, user_id),
+        headers, s.str(), kApplicationUrlEncode);
+    if (!res)
+      OutputDebugStringA("Can't set broadcast info");
+    else
+      OutputDebugStringA("Broadcast info set successfully");
   } catch (...) {
   }
 }
 
 void TwitchUser::GetTwitchUserInfo(std::string const& client_id,
     std::string const& jwt) {
-  httplib::Client cli(kTwitchApiHost);
+  httplib::Client cli(Twitch::Host::kApiHost);
   httplib::Headers headers;
   headers.emplace("Client-Id", client_id);
   headers.emplace("Authorization", fmt::format("Bearer {}", jwt));
-  auto res = cli.Get(kTwitchUserEndpoint, headers);
+  auto res = cli.Get(Twitch::Endpoint::kUsers, headers);
   if (!res)
     return;
 
@@ -205,14 +329,14 @@ nlohmann::json TwitchGame::GetGameInfo(std::string const& game_name,
     return it->second;
   }
 
-  httplib::Client cli(kTwitchApiHost);
+  httplib::Client cli(Twitch::Host::kApiHost);
   httplib::Headers headers;
   headers.emplace("Client-Id", client_id);
   headers.emplace("Authorization", fmt::format("Bearer {}", jwt));
 
   httplib::Params params;
   params.emplace("name", game_name);
-  auto res = cli.Get(kTwitchGamesEndpoint, params, headers);
+  auto res = cli.Get(Twitch::Endpoint::kGames, params, headers);
   if (!res) {
     OutputDebugStringA(("Could not find data for " + game_name).c_str());
     return {};

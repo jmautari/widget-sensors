@@ -2,6 +2,8 @@
 #include "shared/widget_plugin.h"
 #include "shared/string_util.h"
 #include "shared/power_util.hpp"
+#include "resources/win/resource.h"
+#include "main/version.h"
 #include "rtss/rtss.hpp"
 #include "websocket/server.hpp"
 #include <atlbase.h>
@@ -1097,8 +1099,9 @@ bool CreateWindowResources(HINSTANCE hInstance) {
   nid.uID = ID_TRAY_ICON;
   nid.uVersion = NOTIFYICON_VERSION;
   nid.uCallbackMessage = WM_M_TRAY;
-  nid.hIcon = LoadIcon(NULL, IDI_APPLICATION);
-  wcscpy_s(nid.szTip, kClassName);
+  nid.hIcon = static_cast<HICON>(LoadImage(GetModuleHandle(nullptr),
+      MAKEINTRESOURCEW(IDI_BIG), IMAGE_ICON, 0, 0, LR_DEFAULTSIZE));
+  wcscpy_s(nid.szTip, APP_NAME_W);
   nid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
 
   if (Shell_NotifyIcon(NIM_ADD, &nid))

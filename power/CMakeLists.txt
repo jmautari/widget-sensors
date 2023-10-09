@@ -16,10 +16,16 @@ set(OS_WINDOWS 1)
 message(STATUS "${PROJECT_FOLDER}")
 
 # Main executable sources.
+set(RESOURCES_SRCS
+  ${CMAKE_CURRENT_SOURCE_DIR}/resources/win/resource.h
+  ${CMAKE_CURRENT_SOURCE_DIR}/resources/win/windows.rc
+  )
+
 file(GLOB_RECURSE MAIN_SRCS
   ${CMAKE_SOURCE_DIR}/${PROJECT_FOLDER}/*.h
   ${CMAKE_SOURCE_DIR}/${PROJECT_FOLDER}/*.hpp
   ${CMAKE_SOURCE_DIR}/${PROJECT_FOLDER}/*.cpp
+  ${RESOURCES_SRCS}
 )
 
 # Shared code components with the main project.

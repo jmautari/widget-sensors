@@ -20,6 +20,7 @@ constexpr wchar_t kConfigFile[]{ L"obs.json" };
 bool debug = false;
 bool init = false;
 struct {
+  std::filesystem::path data_dir;
   std::string host;
   int port{};
   std::string password;
@@ -34,7 +35,7 @@ void StartObsWebSocketClient() {
       ("Starting ObsWebSocket client using IP: " + obs_config.host +
           " port: " + std::to_string(obs_config.port))
           .c_str());
-  obs = std::make_unique<network::ObsWebClient>(
+  obs = std::make_unique<network::ObsWebClient>(obs_config.data_dir,
       obs_config.host, obs_config.port, obs_config.password);
   obs->Start();
 }
@@ -62,6 +63,7 @@ bool DECLDLL PLUGIN InitPlugin(const std::filesystem::path& data_dir,
     if (host.empty() || port < 0 || port >= 30000 || pwd.empty())
       return false;
 
+    obs_config.data_dir = std::move(data_dir);
     obs_config.host = std::move(host);
     obs_config.port = port;
     obs_config.password = std::move(pwd);

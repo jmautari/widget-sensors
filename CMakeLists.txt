@@ -93,10 +93,16 @@ endmacro()
 # Windows configuration.
 #
 
+set(RESOURCES_SRCS
+  main/resources/win/resource.h
+  main/resources/win/windows.rc
+  )
+
 # Add resources to the sources variable for convenience.
 set(MAIN_SRCS
   ${MAIN_SRCS}
   ${SHARED_SRCS}
+  ${RESOURCES_SRCS}
   )
 
 # Create source groups for Visual Studio.

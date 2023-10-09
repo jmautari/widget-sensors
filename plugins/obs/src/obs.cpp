@@ -1,22 +1,29 @@
 #include "obs.hpp"
+#include <shellapi.h>
 #include "shared/base64_util.hpp"
 #include "shared/sha256_util.hpp"
+#include "shared/shell_util.hpp"
+#include "fmt/format.h"
 #include <cassert>
+
+#define ADD_HANDLER(evt) \
+  event_handlers_.emplace(#evt, [this](auto&& d) { return evt(d); })
+
+#define ADD_COMMAND(cmd) commands_[#cmd] = [this](auto&& json) { cmd(json); }
 
 namespace network {
 using websocketpp::lib::placeholders::_1;
 using websocketpp::lib::placeholders::_2;
 using websocketpp::lib::bind;
 
-constexpr char kEventStreamStateChanged[] = { "StreamStateChanged" };
-constexpr char kEventReplayBufferStateChanged[] = {
-  "ReplayBufferStateChanged"
-};
-
-ObsWebClient::ObsWebClient(std::string host,
+ObsWebClient::ObsWebClient(std::filesystem::path data_dir,
+    std::string host,
     unsigned port,
     std::string password)
-    : host_(std::move(host)), port_(port), password_(std::move(password)) {
+    : data_dir_(std::move(data_dir))
+    , host_(std::move(host))
+    , port_(port)
+    , password_(std::move(password)) {
   assert(!host_.empty());
   assert(port_ > 0);
 
@@ -27,10 +34,10 @@ ObsWebClient::ObsWebClient(std::string host,
 
   client_.set_message_handler(bind(&ObsWebClient::OnMessage, this, _1, _2));
 
-  event_handlers_.emplace(kEventStreamStateChanged,
-      [this](auto&& d) { return StreamStateChanged(d); });
-  event_handlers_.emplace(kEventReplayBufferStateChanged,
-      [this](auto&& d) { return ReplayBufferStateChanged(d); });
+  ADD_HANDLER(StreamStateChanged);
+  ADD_HANDLER(ReplayBufferStateChanged);
+
+  ADD_COMMAND(OpenConfigFile);
 }
 
 ObsWebClient::~ObsWebClient() {
@@ -79,6 +86,11 @@ bool ObsWebClient::Send(connection_hdl hdl, const char* data, size_t size) {
 
 bool ObsWebClient::Request(std::string const& cmd,
     nlohmann::json const& params) {
+  if (auto&& it = commands_.find(cmd); it != commands_.end()) {
+    it->second(params);
+    return true;
+  }
+
   /*
   {
     "op": 6,
@@ -226,5 +238,18 @@ void ObsWebClient::OnMessage(connection_hdl hdl, client_t::message_ptr msg) {
 
   if (on_message_)
     on_message_(hdl, msg.get()->get_payload());
+}
+
+void ObsWebClient::OpenConfigFile(nlohmann::json const& params) {
+  if (!params.contains("file") || !params["file"].is_string())
+    return;
+
+  std::error_code ec;
+  auto file = data_dir_ / params["file"];
+  if (!std::filesystem::exists(file, ec))
+    return;
+
+  auto url = L"file://" + file.wstring();
+  static_cast<void>(util::OpenViaShell(url));
 }
 }  // namespace network

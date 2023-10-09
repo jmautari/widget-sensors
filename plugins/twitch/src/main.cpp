@@ -18,13 +18,14 @@
 
 #define DBGOUT(x) if (debug) OutputDebugStringW((x))
 
+HINSTANCE hInstance;
+
 namespace {
 constexpr wchar_t kConfigFile[]{ L"twitch.json" };
 constexpr wchar_t kGamesDbFile[]{ L"games_db.json" };
 
 constexpr char kDefaultIp[]{ "0.0.0.0" };
 constexpr int kDefaultPort = 30000;
-
 
 bool debug = false;
 bool init = false;
@@ -36,6 +37,7 @@ struct {
 } twitch_config;
 std::unique_ptr<network::TwitchClient> twitch;
 std::filesystem::path data_dir;
+std::filesystem::path db_file;
 core::SimpleDb game_db;
 
 template<typename T>
@@ -127,8 +129,9 @@ bool DECLDLL PLUGIN InitPlugin(const std::filesystem::path& d,
     bool debug_mode) {
   OutputDebugStringW(__FUNCTIONW__);
   data_dir = d;
+  db_file = data_dir / kGamesDbFile;
+
   auto config_file = data_dir / kConfigFile;
-  auto db_file = data_dir / kGamesDbFile;
   std::error_code ec;
   if (!std::filesystem::exists(config_file, ec))
     return false;
@@ -148,17 +151,12 @@ bool DECLDLL PLUGIN InitPlugin(const std::filesystem::path& d,
       return false;
     }
 
-    if (!game_db.Load(db_file, true))
-      OutputDebugStringA("Could not load games database");
-    else
-      OutputDebugStringA("Games database loaded successfully");
-
     twitch_config.client_id = std::move(client_id);
     twitch_config.secret = std::move(secret);
     twitch_config.ip = std::move(ip);
     twitch_config.port = port;
 
-    twitch = std::make_unique<network::TwitchClient>();
+    twitch = std::make_unique<network::TwitchClient>(data_dir);
 
     StartTwitchBackend();
   } catch (...) {
@@ -216,6 +214,9 @@ void DECLDLL PLUGIN ProfileChanged(const std::string& pname) {
   std::ofstream file(filename, std::ios::app);
   if (file.is_open())
     file << pname << std::endl;
+
+  if (!game_db.Load(db_file, true))
+    OutputDebugStringA("Could not load games database");
 
   try {
     std::filesystem::path p = pname;
@@ -281,6 +282,7 @@ void DECLDLL PLUGIN ProfileChanged(const std::string& pname) {
 }
 // End exported functions
 
-BOOL WINAPI DllMain(HINSTANCE, DWORD, LPVOID) {
+BOOL WINAPI DllMain(HINSTANCE hInst, DWORD, LPVOID) {
+  hInstance = hInst;
   return TRUE;
 }

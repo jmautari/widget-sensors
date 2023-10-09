@@ -22,7 +22,10 @@ class ObsWebClient {
 public:
   ObsWebClient() = delete;
 
-  ObsWebClient(std::string host, unsigned port, std::string password);
+  ObsWebClient(std::filesystem::path data_dir,
+      std::string host,
+      unsigned port,
+      std::string password);
   ~ObsWebClient();
 
   bool Start(message_handler_t on_message = nullptr);
@@ -54,6 +57,7 @@ private:
 
   std::string GeneratePaswordHash(nlohmann::json const& payload) const;
 
+  std::filesystem::path data_dir_;
   std::thread runner_;
   message_handler_t on_message_;
   std::string host_;
@@ -64,6 +68,10 @@ private:
   connection_hdl server_;
 
   std::unordered_map<std::string, event_handler_t> event_handlers_;
+  std::unordered_map<std::string, std::function<void(nlohmann::json const&)>>
+      commands_;
+
+  void OpenConfigFile(nlohmann::json const& params);
 
   OutputState state_;
 };
