@@ -2,10 +2,16 @@
 #include "shared/resource_util.hpp"
 #include <cpp-httplib/httplib.h>
 #include <nlohmann/json.hpp>
+#include <future>
 #include <string>
 #include <filesystem>
+#include <tuple>
+#include <mutex>
 
 namespace network {
+using refresh_function_t = std::function<
+    std::tuple<std::string, std::string, int>(std::string)>;
+
 class TwitchUser {
 public:
   TwitchUser(std::string const& client_id, std::string const& jwt) {
@@ -32,6 +38,29 @@ private:
   std::unordered_map<std::string, nlohmann::json> games_;
 };
 
+class TwitchToken {
+public:
+  TwitchToken() = delete;
+  TwitchToken(std::string access_token,
+      std::string refresh_token,
+      int expires_in,
+      refresh_function_t refresh_fun);
+  ~TwitchToken();
+
+  std::string const& GetAccessToken() {
+    std::unique_lock lock(mutex_);
+    return access_token_;
+  }
+
+private:
+  std::string access_token_;
+  std::string refresh_token_;
+  bool quit_{ false };
+  std::mutex mutex_;
+  std::condition_variable cv_;
+  std::future<void> refresher_;
+};
+
 class TwitchClient {
 public:
   TwitchClient(std::filesystem::path data_dir);
@@ -47,7 +76,7 @@ public:
       nlohmann::json const& params = nlohmann::json::object());
 
   [[nodiscard]] bool IsAuthenticated() const noexcept {
-    return !jwt_.empty();
+    return token_ && !token_->GetAccessToken().empty();
   }
 
   [[nodiscard]] std::string GetAuthenticationUrl();
@@ -66,7 +95,7 @@ public:
       const std::string& title = {}) const;
 
   [[nodiscard]] std::string const& GetAccessToken() const {
-    return jwt_;
+    return token_ ? token_->GetAccessToken() : "";
   }
 
 private:
@@ -76,6 +105,8 @@ private:
   void Console(const httplib::Request& req, httplib::Response& res);
 
   void ExchangeCodeWithToken(std::string const& code, httplib::Response& res);
+  std::tuple<std::string, std::string, int> RefreshToken(
+      std::string const& refresh_token);
 
   std::string GetContent(int resource_id, const nlohmann::json& vars) const;
 
@@ -86,12 +117,12 @@ private:
   std::string ip_;
   int port_{};
   bool running_{};
-  std::string jwt_;
   std::string state_;
   std::string redir_url_;
 
   httplib::Server server_;
   std::unique_ptr<TwitchUser> user_;
+  std::unique_ptr<TwitchToken> token_;
   TwitchGame game_;
   windows::EmbeddedResource resource_;
 

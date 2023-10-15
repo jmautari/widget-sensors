@@ -4,6 +4,7 @@
 #include "shared/shell_util.hpp"
 #include "../resources/win/resource.h"
 #include "fmt/format.h"
+#include <execution>
 #include <random>
 #include <regex>
 #include <sstream>
@@ -94,7 +95,8 @@ std::string TwitchClient::GetAuthenticationUrl() {
 }
 
 nlohmann::json TwitchClient::GetGameInfo(const std::string& game_name) {
-  auto json = game_.GetGameInfo(game_name, client_id_, jwt_);
+  auto json = game_.GetGameInfo(
+      game_name, client_id_, token_->GetAccessToken());
   return json;
 }
 
@@ -172,11 +174,14 @@ void TwitchClient::ExchangeCodeWithToken(std::string const& code,
     try {
       auto json = nlohmann::json::parse(response->body);
       if (json.contains("access_token") && json["access_token"].is_string()) {
-        jwt_ = json["access_token"];
+        token_ = std::make_unique<TwitchToken>(json["access_token"],
+            json["refresh_token"], json["expires_in"],
+            [&](auto refresh_token) { return RefreshToken(refresh_token); });
+        user_ = std::make_unique<TwitchUser>(
+            client_id_, token_->GetAccessToken());
+
         res.set_content("You can close this tab now", kTextPlain);
         res.status = 200;
-
-        user_ = std::make_unique<TwitchUser>(client_id_, jwt_);
         return;
       }
     } catch (...) {
@@ -187,6 +192,30 @@ void TwitchClient::ExchangeCodeWithToken(std::string const& code,
   res.set_content(
       fmt::format("Not authorized\n{}", response ? response->body : "null"),
       kTextPlain);
+}
+
+std::tuple<std::string, std::string, int> TwitchClient::RefreshToken(
+    std::string const& refresh_token) {
+  httplib::Client cli(Twitch::Host::kIdHost);
+  std::ostringstream o;
+  o << "client_id=" << client_id_ << "&client_secret=" << secret_
+    << "&grant_type=refresh_token"
+    << "&refresh_token=" << refresh_token;
+  auto response = cli.Post(
+      Twitch::Endpoint::kGetToken, o.str(), kApplicationUrlEncode);
+  if (response && response->status == 200) {
+    try {
+      auto json = nlohmann::json::parse(response->body);
+      if (json.contains("access_token") && json["access_token"].is_string()) {
+        user_.reset(new TwitchUser(client_id_, json["access_token"]));
+        return { json["access_token"], json["refresh_token"],
+          json["expires_in"] };
+      }
+    } catch (...) {
+    }
+  }
+
+  return {};
 }
 
 std::string TwitchClient::GetContent(int resource_id,
@@ -202,8 +231,9 @@ void TwitchClient::Console(const httplib::Request& req,
   if (req.method == "GET") {
     std::string user_id = user_->GetUserInfo()["data"][0]["id"];
     nlohmann::json const vars{ { "client_id", client_id_ },
-      { "access_token", jwt_ }, { "user_id", std::move(user_id) },
-      { "host", Twitch::Host::kApiHost }, { "port", port_ } };
+      { "access_token", token_->GetAccessToken() },
+      { "user_id", std::move(user_id) }, { "host", Twitch::Host::kApiHost },
+      { "port", port_ } };
     res.set_content(GetContent(resource::kConsoleHtml, vars), kTextHtml);
     return;
   }
@@ -232,7 +262,8 @@ void TwitchClient::Console(const httplib::Request& req,
   httplib::Client cli(host);
   httplib::Headers headers;
   headers.emplace("Client-Id", client_id_);
-  headers.emplace("Authorization", fmt::format("Bearer {}", jwt_));
+  headers.emplace(
+      "Authorization", fmt::format("Bearer {}", token_->GetAccessToken()));
 
   std::string response;
   int status = 404;
@@ -292,7 +323,8 @@ void TwitchClient::SetBroadcastInfo(const std::string& game_id,
   httplib::Client cli(Twitch::Host::kApiHost);
   httplib::Headers headers;
   headers.emplace("Client-Id", client_id_);
-  headers.emplace("Authorization", fmt::format("Bearer {}", jwt_));
+  headers.emplace(
+      "Authorization", fmt::format("Bearer {}", token_->GetAccessToken()));
   try {
     auto res = cli.Patch(fmt::format("{}?broadcaster_id={}",
                              Twitch::Endpoint::kChannels, user_id),
@@ -351,5 +383,44 @@ nlohmann::json TwitchGame::GetGameInfo(std::string const& game_name,
     OutputDebugStringA(("Error parsing JSON " + res->body).c_str());
   }
   return {};
+}
+
+TwitchToken::TwitchToken(std::string access_token,
+    std::string refresh_token,
+    int expires_in,
+    refresh_function_t refresh_fun)
+    : access_token_(access_token), refresh_token_(refresh_token) {
+  refresher_ = std::async(
+      std::launch::async, [this, expires_in, fun = std::move(refresh_fun)] {
+        constexpr int kRefreshBeforeSecs = 120;
+        auto exp = expires_in;
+        do {
+          std::unique_lock lock(mutex_);
+          if (!cv_.wait_for(lock,
+                  std::chrono::seconds(exp - kRefreshBeforeSecs),
+                  [&] { return quit_; })) {
+            OutputDebugStringA("Token is expiring soon; trying to refresh it");
+            auto [access_token, refresh_token, new_expires_in] = fun(
+                refresh_token_);
+            if (access_token.empty()) {
+              OutputDebugStringA("Could not refresh token");
+              return;
+            }
+
+            OutputDebugStringA("Token refreshed successfully");
+
+            access_token_ = std::move(access_token);
+            refresh_token_ = std::move(refresh_token);
+            exp = new_expires_in;
+          } else
+            break;
+        } while (!quit_);
+      });
+}
+
+TwitchToken::~TwitchToken() {
+  std::unique_lock lock(mutex_);
+  quit_ = true;
+  cv_.notify_one();
 }
 }  // namespace network
