@@ -1,6 +1,7 @@
 #include "obs.hpp"
 #include <shellapi.h>
 #include "shared/base64_util.hpp"
+#include "shared/logger.hpp"
 #include "shared/sha256_util.hpp"
 #include "shared/shell_util.hpp"
 #include "fmt/format.h"
@@ -41,7 +42,7 @@ ObsWebClient::ObsWebClient(std::filesystem::path data_dir,
 }
 
 ObsWebClient::~ObsWebClient() {
-  OutputDebugStringA(__FUNCTION__);
+  LOG(INFO) << __FUNCTION__;
   client_.stop();
   runner_.join();
 }
@@ -75,7 +76,7 @@ bool ObsWebClient::Start(message_handler_t on_message) {
 
 bool ObsWebClient::Send(connection_hdl hdl, const char* data, size_t size) {
   try {
-    OutputDebugStringA(("Sending " + std::string(data, size)).c_str());
+    LOG(INFO) << "Sending " << std::string(data, size);
     client_.send(hdl, data, size, websocketpp::frame::opcode::TEXT);
     return true;
   } catch (...) {
@@ -115,7 +116,7 @@ bool ObsWebClient::Request(std::string const& cmd,
     client_.send(server_, j.dump(), websocketpp::frame::opcode::TEXT);
     return true;
   } catch (...) {
-    OutputDebugStringW(L"Error sending request to server!");
+    LOG(ERROR) << "Error sending request to server!";
   }
   return false;
 }
@@ -143,7 +144,8 @@ bool ObsWebClient::StreamStateChanged(nlohmann::json const& event_data) {
   if (!state_.streaming)
     return true;
 
-  StopReplayBuffer();
+  // TODO: Refactor to use callback based notification
+  //StopReplayBuffer();
   return true;
 }
 
@@ -152,7 +154,8 @@ bool ObsWebClient::ReplayBufferStateChanged(nlohmann::json const& event_data) {
   if (!state_.replay_buffer)
     return true;
 
-  StopStream();
+  // TODO: Refactor to use callback based notification
+  //StopStream();
   return true;
 }
 
@@ -181,7 +184,7 @@ bool ObsWebClient::HandleResponse(connection_hdl hdl,
   nlohmann::json r;
   try {
     std::string const& m = msg->get_payload();
-    OutputDebugStringA(m.c_str());
+    LOG(INFO) << m;
 
     auto j = nlohmann::json::parse(m);
     int op = j["op"];
@@ -206,7 +209,7 @@ bool ObsWebClient::HandleResponse(connection_hdl hdl,
         return HandleEvent(j);
     }
   } catch (...) {
-    OutputDebugStringW(L"Error processing response");
+    LOG(ERROR) << "Error processing response";
   }
   return false;
 }

@@ -1,4 +1,5 @@
 #include "shared/platform.hpp"
+#include "shared/logger.hpp"
 #include "shared/widget_plugin.h"
 #include "nvapi/nvapi.h"
 #include "nvapi/NvApiDriverSettings.h"
@@ -8,8 +9,6 @@
 #include <fstream>
 #include <filesystem>
 #include <map>
-
-#define DBGOUT(x) if (debug) OutputDebugStringW((x))
 
 namespace {
 namespace NvDrv {
@@ -65,32 +64,14 @@ bool CheckReBar(NvDRSSessionHandle hSession, NvDRSProfileHandle hProfile) {
     return false;
 
   return true;
-#if 0
-  return [&] {
-    static_assert(sizeof(uint64_t) == 8, "Invalid uint64 size");
-    const auto s = get_setting(NvDrv::kRebarSizeLimit);
-    if (s.binaryCurrentValue.valueLength != 8) {
-      OutputDebugStringA(("Invalid value size of " +
-                          std::to_string(s.binaryCurrentValue.valueLength))
-                             .c_str());
-      return 0ULL;
-    }
-
-    uint64_t v;
-    memcpy(&v, s.binaryCurrentValue.valueData, sizeof(v));
-    OutputDebugStringA(("valueData=" + std::to_string(v)).c_str());
-    return v;
-  }() > 0;
-#endif
 }
 
 bool FindGameProfile(std::wstring executable) {
   if (!init)
     return false;
   else if (rebar_status.profile == executable) {
-    DBGOUT((L"Returning cahced result for " + executable + L" res: " +
-            (rebar_status.value ? L"true" : L"false"))
-               .c_str());
+    LOG(INFO) << "Returning cached result for " << wstring2string(executable)
+              << " res: " << (rebar_status.value ? L"true" : L"false");
     return rebar_status.value;
   }
 
@@ -107,9 +88,7 @@ bool FindGameProfile(std::wstring executable) {
   do {
     status = NvAPI_DRS_LoadSettings(hSession);
     if (status != NVAPI_OK) {
-      DBGOUT(
-          (L"Could not load settings. Err: " + std::to_wstring(status))
-              .c_str());
+      LOG(ERROR) << "Could not load settings. Err: " << status;
       break;
     }
 
@@ -120,12 +99,12 @@ bool FindGameProfile(std::wstring executable) {
         reinterpret_cast<NvU16*>(executable.data()), &hProfile, app.get());
     if (status != NVAPI_OK) {
       if (status == NVAPI_EXECUTABLE_NOT_FOUND)
-        DBGOUT((L"Profile not found for " + executable).c_str());
+        LOG(ERROR) << "Profile not found for " << wstring2string(executable);
 
       break;
     }
 
-    DBGOUT((L"Loaded driver profile for " + executable).c_str());
+    LOG(INFO) << "Loaded driver profile for " << wstring2string(executable);
     res = CheckReBar(hSession, hProfile);
     rebar_status.value = res;
   } while (false);
@@ -139,7 +118,7 @@ bool FindGameProfile(std::wstring executable) {
 // Begin exported functions
 bool DECLDLL PLUGIN InitPlugin(const std::filesystem::path& data_dir,
     bool debug_mode) {
-  OutputDebugStringW(__FUNCTIONW__);
+  LOG(INFO) << __FUNCTION__;
   // (0) Initialize NVAPI. This must be done first of all
   if (NvAPI_Initialize() != NVAPI_OK)
     return false;
@@ -167,7 +146,7 @@ std::wstring DECLDLL PLUGIN GetValues(const std::wstring& profile_name) {
 }
 
 void DECLDLL PLUGIN ShutdownPlugin() {
-  OutputDebugStringW(__FUNCTIONW__);
+  LOG(INFO) << __FUNCTION__;
   if (init) {
     init = false;
     NvAPI_Unload();

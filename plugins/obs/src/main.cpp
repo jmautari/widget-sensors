@@ -1,6 +1,7 @@
 #include "shared/platform.hpp"
 #include "shared/string_util.h"
 #include "shared/widget_plugin.h"
+#include "shared/logger.hpp"
 #include "obs.hpp"
 #include "nlohmann/json.hpp"
 #include "fmt/format.h"
@@ -11,8 +12,6 @@
 #include <filesystem>
 #include <map>
 #include <future>
-
-#define DBGOUT(x) if (debug) OutputDebugStringW((x))
 
 namespace {
 constexpr wchar_t kConfigFile[]{ L"obs.json" };
@@ -31,10 +30,8 @@ std::promise<void> cancel_stop_buffer;
 std::shared_future<void> future;
 
 void StartObsWebSocketClient() {
-  OutputDebugStringA(
-      ("Starting ObsWebSocket client using IP: " + obs_config.host +
-          " port: " + std::to_string(obs_config.port))
-          .c_str());
+  LOG(INFO) << "Starting ObsWebSocket client using IP: " << obs_config.host
+            << " port: " << obs_config.port;
   obs = std::make_unique<network::ObsWebClient>(obs_config.data_dir,
       obs_config.host, obs_config.port, obs_config.password);
   obs->Start();
@@ -44,7 +41,7 @@ void StartObsWebSocketClient() {
 // Begin exported functions
 bool DECLDLL PLUGIN InitPlugin(const std::filesystem::path& data_dir,
     bool debug_mode) {
-  OutputDebugStringW(__FUNCTIONW__);
+  LOG(INFO) << __FUNCTION__;
   auto config_file = data_dir / kConfigFile;
   std::error_code ec;
   if (!std::filesystem::exists(config_file, ec))
@@ -71,7 +68,7 @@ bool DECLDLL PLUGIN InitPlugin(const std::filesystem::path& data_dir,
 
     StartObsWebSocketClient();
   } catch (...) {
-    OutputDebugStringW(L"Error parsing config file");
+    LOG(ERROR) << "Error parsing config file";
     return false;
   }
 
@@ -88,7 +85,7 @@ std::wstring DECLDLL PLUGIN GetValues(const std::wstring& profile_name) {
 }
 
 void DECLDLL PLUGIN ShutdownPlugin() {
-  OutputDebugStringW(__FUNCTIONW__);
+  LOG(INFO) << __FUNCTION__;
   if (init) {
     init = false;
 
@@ -133,10 +130,10 @@ void DECLDLL PLUGIN ProfileChanged(const std::string& pname) {
       std::thread wait([&, fut = future] {
         auto res = fut.wait_for(std::chrono::seconds(15));
         if (res == std::future_status::timeout) {
-          OutputDebugStringW(L"Stopping replay buffer");
+          LOG(INFO) << "Stopping replay buffer";
           obs->StopReplayBuffer();
         } else {
-          OutputDebugStringW(L"Previous stop replay request cancelled");
+          LOG(INFO) << "Previous stop replay request cancelled";
         }
       });
       wait.detach();
@@ -146,9 +143,9 @@ void DECLDLL PLUGIN ProfileChanged(const std::string& pname) {
   }
 
   if (obs->GetOutputState().streaming) {
-    OutputDebugStringW(L"Streaming. Don't start replay buffer");
+    LOG(INFO) << "Streaming. Don't start replay buffer";
   } else {
-    OutputDebugStringW(L"Starting replay buffer");
+    LOG(INFO) << "Starting replay buffer";
     obs->StartReplayBuffer();
   }
 

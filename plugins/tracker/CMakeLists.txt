@@ -18,7 +18,7 @@ set(RESOURCES_SRCS
   ${CMAKE_CURRENT_SOURCE_DIR}/resources/win/resource.h
   ${CMAKE_CURRENT_SOURCE_DIR}/resources/win/windows.rc
   )
-  
+
 # Main executable sources.
 set(MAIN_SRCS
   ${ALL_SRCS}
@@ -61,7 +61,15 @@ SET_PLUGIN_LIBRARY_TARGET_PROPERTIES(${MAIN_TARGET})
 # Set additional compile & link options
 target_compile_options(${MAIN_TARGET} PRIVATE "$<$<CONFIG:DEBUG>:/MDd>")
 target_compile_options(${MAIN_TARGET} PRIVATE "$<$<CONFIG:RELEASE>:/MD>" "$<$<CONFIG:RELEASE>:/Zi>")
-target_compile_definitions(${MAIN_TARGET} PRIVATE FMT_HEADER_ONLY OS_WIN _WIN32_IE=0x0600 _WIN32_WINNT=0x0A00 WINVER=0x0A00)
+target_compile_definitions(${MAIN_TARGET} PRIVATE
+  FMT_HEADER_ONLY
+  OS_WIN
+  _WIN32_IE=0x0600
+  _WIN32_WINNT=0x0A00
+  WINVER=0x0A00
+  LOG_DIR="widgets"
+  LOG_FILE="tracker.log"
+  )
 
 # Ignore warning nonstandard extension used: nameless struct/union
 target_compile_options(${MAIN_TARGET} PRIVATE /wd4201 /wd4324)

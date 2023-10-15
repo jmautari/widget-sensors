@@ -2,6 +2,7 @@
 #include "shared/simple_db.hpp"
 #include "shared/string_util.h"
 #include "shared/widget_plugin.h"
+#include "shared/logger.hpp"
 #include "twitch.hpp"
 #include "nlohmann/json.hpp"
 #include "fmt/format.h"
@@ -15,8 +16,6 @@
 #include <filesystem>
 #include <map>
 #include <future>
-
-#define DBGOUT(x) if (debug) OutputDebugStringW((x))
 
 HINSTANCE hInstance;
 
@@ -65,7 +64,7 @@ void StartTwitchBackend() {
   s.lpFile = auth_url.c_str();
   s.nShow = SW_SHOW;
   if (!ShellExecuteExW(&s)) {
-    OutputDebugStringW(L"Cannot start authentication");
+    LOG(ERROR) << "Cannot start authentication";
     return;
   }
 }
@@ -82,9 +81,7 @@ std::string FindGame(std::wstring executable) {
   do {
     status = NvAPI_DRS_LoadSettings(hSession);
     if (status != NVAPI_OK) {
-      OutputDebugStringW(
-          (L"Could not load settings. Err: " + std::to_wstring(status))
-                 .c_str());
+      LOG(ERROR) << "Could not load settings. Err: " << status;
       break;
     }
 
@@ -95,25 +92,25 @@ std::string FindGame(std::wstring executable) {
         reinterpret_cast<NvU16*>(executable.data()), &hProfile, app.get());
     if (status != NVAPI_OK) {
       if (status == NVAPI_EXECUTABLE_NOT_FOUND)
-        OutputDebugStringW((L"Profile not found for " + executable).c_str());
+        LOG(ERROR) << "Profile not found for " << wstring2string(executable);
       else
-        OutputDebugStringW(L"Other NVAPI error");
+        LOG(ERROR) << "Other NVAPI error. Code: " << status;
 
       break;
     }
 
-    OutputDebugStringW(L"Profile found");
+    LOG(INFO) << "Profile found";
 
     auto profile = std::make_unique<NVDRS_PROFILE>();
     profile->version = NVDRS_PROFILE_VER;
     status = NvAPI_DRS_GetProfileInfo(hSession, hProfile, profile.get());
     if (status != NVAPI_OK) {
-      OutputDebugStringA("Error getting profile info");
+      LOG(ERROR) << "Error getting profile info";
       break;
     }
 
-    OutputDebugStringW((wchar_t*)profile->profileName);
-    OutputDebugStringW(L"==");
+    LOG(INFO) << profile->profileName;
+    LOG(INFO) << "==";
 
     game = wstring2string(reinterpret_cast<wchar_t*>(profile->profileName));
   } while (false);
@@ -127,7 +124,7 @@ std::string FindGame(std::wstring executable) {
 // Begin exported functions
 bool DECLDLL PLUGIN InitPlugin(const std::filesystem::path& d,
     bool debug_mode) {
-  OutputDebugStringW(__FUNCTIONW__);
+  LOG(INFO) << __FUNCTION__;
   data_dir = d;
   db_file = data_dir / kGamesDbFile;
 
@@ -147,7 +144,7 @@ bool DECLDLL PLUGIN InitPlugin(const std::filesystem::path& d,
     auto ip = GetConfigOrDefaultValue<std::string>(cfg, "ip", kDefaultIp);
     auto const port = GetConfigOrDefaultValue<int>(cfg, "port", kDefaultPort);
     if (client_id.empty() || secret.empty() || ip.empty() || port < 0) {
-      OutputDebugStringW(L"Invalid config");
+      LOG(ERROR) << "Invalid config";
       return false;
     }
 
@@ -160,7 +157,7 @@ bool DECLDLL PLUGIN InitPlugin(const std::filesystem::path& d,
 
     StartTwitchBackend();
   } catch (...) {
-    OutputDebugStringW(L"Error parsing config file");
+    LOG(ERROR) << "Error parsing config file";
     return false;
   }
 
@@ -174,7 +171,7 @@ std::wstring DECLDLL PLUGIN GetValues(const std::wstring& profile_name) {
 }
 
 void DECLDLL PLUGIN ShutdownPlugin() {
-  OutputDebugStringW(__FUNCTIONW__);
+  LOG(INFO) << __FUNCTION__;
   if (init) {
     init = false;
 
@@ -216,7 +213,7 @@ void DECLDLL PLUGIN ProfileChanged(const std::string& pname) {
     file << pname << std::endl;
 
   if (!game_db.Load(db_file, true))
-    OutputDebugStringA("Could not load games database");
+    LOG(ERROR) << "Could not load games database";
 
   try {
     std::filesystem::path p = pname;
@@ -271,7 +268,7 @@ void DECLDLL PLUGIN ProfileChanged(const std::string& pname) {
              << std::endl;
       }
 
-      OutputDebugStringA(("Starting " + game + " id: " + game_id).c_str());
+      LOG(INFO) << "Starting " << game << " id: " << game_id;
       twitch->SetBroadcastInfo(game_id, title);
     } else {
       file << "Profile for " << pname << " was not found!" << std::endl;

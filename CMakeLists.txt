@@ -123,7 +123,17 @@ SET_APP_EXECUTABLE_TARGET_PROPERTIES(${MAIN_TARGET})
 # Set additional compile & link options
 target_compile_options(${MAIN_TARGET} PRIVATE "$<$<CONFIG:DEBUG>:/MDd>")
 target_compile_options(${MAIN_TARGET} PRIVATE "$<$<CONFIG:RELEASE>:/MD>" "$<$<CONFIG:RELEASE>:/Zi>")
-target_compile_definitions(${MAIN_TARGET} PRIVATE FMT_HEADER_ONLY OS_WIN _WIN32_IE=0x0600 _WIN32_WINNT=0x0A00 WINVER=0x0A00 ASIO_STANDALONE _WEBSOCKETPP_CPP11_TYPE_TRAITS_)
+target_compile_definitions(${MAIN_TARGET} PRIVATE
+  FMT_HEADER_ONLY
+  OS_WIN
+  _WIN32_IE=0x0600
+  _WIN32_WINNT=0x0A00
+  WINVER=0x0A00
+  ASIO_STANDALONE
+  _WEBSOCKETPP_CPP11_TYPE_TRAITS_
+  LOG_DIR="widgets"
+  LOG_FILE="widgets.log"
+  )
 target_link_directories(${MAIN_TARGET} PRIVATE ${CMAKE_SOURCE_DIR}/third_party/steam/sdk/redistributable_bin/win64)
 
 set_target_properties(${MAIN_TARGET} PROPERTIES LINK_FLAGS /SUBSYSTEM:WINDOWS)

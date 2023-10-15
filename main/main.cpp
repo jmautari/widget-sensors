@@ -1,4 +1,5 @@
 #include "shared/platform.hpp"
+#include "shared/logger.hpp"
 #include "shared/widget_plugin.h"
 #include "shared/string_util.h"
 #include "shared/power_util.hpp"
@@ -265,7 +266,7 @@ void ExtractIconFromExe(const std::wstring& path,
 std::vector<AppId_t> GetGameIds(bool& init_flag) {
   init_flag = false;
   if (!SteamAPI_Init()) {
-    OutputDebugStringA("Could not initialise Steam");
+    LOG(ERROR) << "Could not initialise Steam";
     return {};
   }
 
@@ -273,7 +274,7 @@ std::vector<AppId_t> GetGameIds(bool& init_flag) {
 
   auto apps = SteamAppList();
   if (apps == nullptr) {
-    OutputDebugStringA("SteamApps not available");
+    LOG(ERROR) << "SteamApps not available";
     SteamAPI_Shutdown();
     return {};
   }
@@ -283,14 +284,13 @@ std::vector<AppId_t> GetGameIds(bool& init_flag) {
   list.resize(list_count);
   uint32 app_count = apps->GetInstalledApps(list.data(), list_count);
   if (app_count == 0) {
-    OutputDebugStringA("No apps installed");
+    LOG(ERROR) << "No apps installed";
     SteamAPI_Shutdown();
     return {};
   }
 
   list.resize(app_count);
-  OutputDebugStringA(
-      (std::to_string(app_count) + " apps are installed").c_str());
+  LOG(INFO) << app_count << " apps are installed";
 
   SteamAPI_Shutdown();
   return list;
@@ -299,13 +299,13 @@ std::vector<AppId_t> GetGameIds(bool& init_flag) {
 void GetSteamGameList(std::vector<AppId_t> const& list,
     const std::filesystem::path& data_dir) {
   if (!SteamAPI_Init()) {
-    OutputDebugStringA("Could not initialise Steam");
+    LOG(ERROR) << "Could not initialise Steam";
     return;
   }
 
   auto apps = SteamApps();
   if (apps == nullptr) {
-    OutputDebugStringA("SteamApps not available");
+    LOG(ERROR) << "SteamApps not available";
     SteamAPI_Shutdown();
     return;
   }
@@ -317,8 +317,7 @@ void GetSteamGameList(std::vector<AppId_t> const& list,
     apps->GetAppInstallDir(i, path, MAX_PATH);
     game_install_map.emplace(std::to_string(i), path);
     file << i << "," << path << std::endl;
-    OutputDebugStringA(
-        ("AppId " + std::to_string(i) + " install " + path).c_str());
+    LOG(INFO) << "AppId " << i << " install " << path;
   }
 
   SteamAPI_Shutdown();
@@ -350,7 +349,7 @@ bool LoadDatabase(const std::filesystem::path& data_dir,
   }
 
   if (!game_install_map.empty())
-    OutputDebugStringA("Game database loaded successfully");
+    LOG(INFO) << "Game database loaded successfully";
 
   return !game_install_map.empty();
 }
@@ -371,7 +370,7 @@ bool InitialiseGameDatabase(const std::filesystem::path& data_dir) {
   if (list.empty()) {
     if (!init_flag) {
       if (!LoadGameDatabase(data_dir))
-        OutputDebugStringA("Cannot load database. Will retry later");
+        LOG(WARN) << "Cannot load database. Will retry later";
     }
 
     return false;
@@ -380,7 +379,7 @@ bool InitialiseGameDatabase(const std::filesystem::path& data_dir) {
   GetSteamGameList(list, data_dir);
 
   if (!game_install_map.empty())
-    OutputDebugStringA("Game database loaded successfully");
+    LOG(INFO) << "Game database loaded successfully";
 
   return !game_install_map.empty();
 }
@@ -416,11 +415,10 @@ auto GetWindowSize(HWND wnd) {
   const auto itos = [](auto&& i) { return std::to_string(i); };
   std::unique_lock lock(window_mutex);
   GetClientRect(wnd, &current_window_size);
-  OutputDebugStringA(("left=" + itos(current_window_size.left) +
-                      " top=" + itos(current_window_size.top) +
-                      " right=" + itos(current_window_size.right) +
-                      " bottom=" + itos(current_window_size.bottom))
-                         .c_str());
+  LOG(INFO) << "left=" << current_window_size.left
+            << " top=" << current_window_size.top
+            << " right=" << current_window_size.right
+            << " bottom=" << current_window_size.bottom;
 }
 
 auto GetAppWindowSize(const std::filesystem::path& path) {
@@ -447,10 +445,8 @@ auto GetAppWindowSize(const std::filesystem::path& path) {
         if (thread.joinable())
           thread.detach();
       } else {
-        OutputDebugStringA(
-            ("Window for pid " + std::to_string(pe32.th32ProcessID) +
-                " was not found")
-                .c_str());
+        LOG(ERROR) << "Window for pid " << pe32.th32ProcessID
+                   << " was not found";
       }
 
       return;
@@ -501,7 +497,7 @@ bool LoadPlugin(const std::filesystem::path& path,
       [](auto c) { return std::tolower(c); });
   plugin_t p{ std::move(lib), init, getvalues, shutdown, execute_command,
     profile_changed };
-  OutputDebugStringA(("Adding plugin " + file_no_ext).c_str());
+  LOG(INFO) << "Adding plugin " << file_no_ext;
   plugin_list.emplace(std::move(file_no_ext), std::move(p));
   return true;
 }
@@ -513,13 +509,11 @@ auto LoadPlugins(
     if (!e.is_regular_file() || e.path().extension() != kPluginExtension)
       continue;
 
-    OutputDebugStringW(
-        (L"Trying to load plugin from " + e.path().wstring()).c_str());
+    LOG(INFO) << "Trying to load plugin from " << e.path().u8string();
     if (LoadPlugin(e, data_dir, debug_mode))
-      OutputDebugStringW(L"Plugin loaded successfully");
+      LOG(INFO) << "Plugin loaded successfully";
     else
-      OutputDebugStringW(
-          (L"Could not load plugin from " + e.path().wstring()).c_str());
+      LOG(ERROR) << "Could not load plugin from " << e.path().u8string();
   }
 }
 
@@ -536,7 +530,7 @@ BOOL WINAPI Shutdown(DWORD) {
   for (auto& [plugin_name, p] : plugin_list) {
     auto const shutdown = std::get<3>(p);
     if (shutdown != nullptr) {
-      OutputDebugStringA(("Shutting down plugin " + plugin_name).c_str());
+      LOG(INFO) << "Shutting down plugin " << plugin_name;
       shutdown();
     }
   }
@@ -560,7 +554,7 @@ auto StartMonitoring(const wchar_t* data_dir) {
 
   do {
     if (change_event == nullptr) {
-      OutputDebugStringW(L"Cannot create event");
+      LOG(ERROR) << "Cannot create event";
       result = -1;
       break;
     }
@@ -637,16 +631,16 @@ auto StartMonitoring(const wchar_t* data_dir) {
     for (int retry = 30; retry > 0; retry--) {
       if (RegOpenKeyExW(HKEY_CURRENT_USER, kHWINFO64Key, 0,
               KEY_QUERY_VALUE | KEY_NOTIFY, &key) != ERROR_SUCCESS) {
-        OutputDebugStringW(L"Cannot open registry key. Retrying...");
+        LOG(ERROR) << "Cannot open registry key. Retrying...";
         std::this_thread::sleep_for(std::chrono::seconds(1));
       } else {
-        OutputDebugStringW(L"Registry opened successfully");
+        LOG(INFO) << "Registry opened successfully";
         break;
       }
     }
 
     if (key == nullptr) {
-      OutputDebugStringA("RegOpenKey failure");
+      LOG(ERROR) << "RegOpenKey failure";
       result = 3;
       break;
     }
@@ -657,9 +651,8 @@ auto StartMonitoring(const wchar_t* data_dir) {
       if (reg_notify == ERROR_SUCCESS)
         return true;
 
-      OutputDebugStringW((L"Error subscribing to registry changes. Err: " +
-                          std::to_wstring(reg_notify))
-                              .c_str());
+      LOG(ERROR) << "Error subscribing to registry changes. Err: "
+                 << reg_notify;
       return false;
     };
 
@@ -704,7 +697,7 @@ auto StartMonitoring(const wchar_t* data_dir) {
       uint32 app_id{};
       if (!pname.empty()) {
         if (current_profile.empty() || pname != current_profile) {
-          OutputDebugStringW((L"Got new profile " + pname).c_str());
+          LOG(INFO) << "Got new profile " << wstring2string(pname);
           static_cast<void>(power_util.SetScheme(
               windows::PowerScheme::kPowerUltimatePerformance));
           set_current_profile(pname);
@@ -713,17 +706,16 @@ auto StartMonitoring(const wchar_t* data_dir) {
           try {
             app_id = static_cast<uint32>(std::stoi(app_image));
             if (app_id) {
-              OutputDebugStringA(
-                  ("Found app id " + std::to_string(app_id)).c_str());
+              LOG(INFO) << "Found app id " << app_id;
             } else {
-              OutputDebugStringA(("app id=0 app_image=" + app_image).c_str());
+              LOG(INFO) << "app id=0 app_image=" << app_image;
             }
           } catch (...) {
           }
           current_app = app_id;
         }
       } else if (!current_profile.empty()) {
-        OutputDebugStringA("Reseting profile");
+        LOG(INFO) << "Reseting profile";
         set_current_profile({});
         current_app = 0;
         app_poster.clear();
@@ -840,7 +832,7 @@ void RemoveTrayIcon() {
 
 void CopyCurrentData() {
   if (!OpenClipboard(hwnd)) {
-    OutputDebugStringW(L"Error opening clipboard");
+    LOG(ERROR) << "Error opening clipboard";
     return;
   }
 
@@ -849,7 +841,7 @@ void CopyCurrentData() {
     // Allocate a global memory object for the text.
     auto hglbCopy = GlobalAlloc(GMEM_MOVEABLE, last_size + 1);
     if (hglbCopy == NULL) {
-      OutputDebugStringW(L"GlobalAlloc fail");
+      LOG(ERROR) << "GlobalAlloc fail";
       break;
     }
 
@@ -895,7 +887,7 @@ void ExecuteCustomCommand(size_t index) {
 
     nlohmann::json const cmd { { "command", command }, { "params", params } };
     if (!execute_command(cmd.dump()))
-      OutputDebugStringA(("Error executing command " + command).c_str());
+      LOG(ERROR) << "Error executing command " << command;
   } catch (...) {
   }
 }
@@ -1086,8 +1078,7 @@ bool CreateWindowResources(HINSTANCE hInstance) {
       CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, nullptr,
       nullptr, hInstance, nullptr);
   if (!hwnd) {
-    OutputDebugStringA(
-        ("CreateWindow err " + std::to_string(GetLastError())).c_str());
+    LOG(ERROR) << "CreateWindow err " + GetLastError();
     return false;
   }
 

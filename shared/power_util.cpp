@@ -1,11 +1,13 @@
 #include "power_util.hpp"
+#include "shared/logger.hpp"
+#include "shared/string_util.h"
 #include <powrprof.h>
 #include <powersetting.h>
 
 namespace windows {
 PowerUtil::PowerUtil() {
   if (!EnumerateProfiles()) {
-    OutputDebugStringW(L"Failure while enumerating power profiles_");
+    LOG(ERROR) << "Failure while enumerating power profiles";
     return;
   }
 
@@ -18,7 +20,7 @@ bool PowerUtil::SetScheme(PowerScheme k) const {
 
   if (std::get<0>(profiles_[0]).Data1 == 0 ||
       std::get<0>(profiles_[1]).Data1 == 0) {
-    OutputDebugStringW(L"Invalid power profile");
+    LOG(ERROR) << "Invalid power profile";
     return false;
   }
 
@@ -41,10 +43,10 @@ bool PowerUtil::SetScheme(PowerScheme k) const {
   }
 
   if (PowerSetActiveScheme(nullptr, &guid) == ERROR_SUCCESS) {
-    OutputDebugStringW((L"Set power scheme " + name).c_str());
+    LOG(INFO) << "Set power scheme " << wstring2string(name);
     return true;
   } else {
-    OutputDebugStringW((L"Error setting power scheme to " + name).c_str());
+    LOG(ERROR) << "Error setting power scheme to " << wstring2string(name);
   }
 
   return false;

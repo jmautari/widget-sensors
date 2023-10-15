@@ -1,4 +1,5 @@
 #include "twitch.hpp"
+#include "shared/logger.hpp"
 #include "shared/string_util.h"
 #include "shared/parser_util.hpp"
 #include "shared/shell_util.hpp"
@@ -39,12 +40,13 @@ constexpr char kApplicationUrlEncode[] = "application/x-www-form-urlencoded";
 
 TwitchClient::TwitchClient(std::filesystem::path data_dir)
     : data_dir_(data_dir), resource_{ hInstance } {
+  LOG(INFO) << __FUNCTION__;
   ADD_COMMAND(OpenConsole);
   ADD_COMMAND(OpenFile);
 }
 
 TwitchClient::~TwitchClient() {
-  OutputDebugStringA(__FUNCTION__);
+  LOG(INFO) << __FUNCTION__;
   Stop();
 }
 
@@ -75,7 +77,7 @@ void TwitchClient::StartListen(std::string client_id,
 
   runner_ = std::thread([this] {
     if (!server_.listen(ip_, port_))
-      OutputDebugStringA("Cannot start listening");
+      LOG(ERROR) << "Cannot start listening";
   });
 }
 
@@ -108,7 +110,7 @@ bool TwitchClient::Request(std::string const& cmd,
 
     return true;
   } catch (...) {
-    OutputDebugStringW(L"Error processing request!");
+    LOG(ERROR) << "Error processing request!";
   }
   return false;
 }
@@ -126,11 +128,10 @@ void TwitchClient::OpenFile(nlohmann::json const& params) {
     if (std::filesystem::exists(file, ec)) {
       static_cast<void>(util::OpenViaShell(L"file:///" + file.wstring()));
     } else {
-      OutputDebugStringW(
-          (L"File " + file.wstring() + L" does not exist").c_str());
+      LOG(ERROR) << "File " << file.u8string() << " does not exist";
     }
   } catch (...) {
-    OutputDebugStringW((L"Error opening file " + file.wstring()).c_str());
+    LOG(ERROR) << "Error opening file " << file.u8string();
   }
 }
 
@@ -182,12 +183,14 @@ void TwitchClient::ExchangeCodeWithToken(std::string const& code,
 
         res.set_content("You can close this tab now", kTextPlain);
         res.status = 200;
+        LOG(INFO) << "User authenticated successfully";
         return;
       }
     } catch (...) {
     }
   }
 
+  LOG(ERROR) << "Authentication failed";
   res.status = 403;
   res.set_content(
       fmt::format("Not authorized\n{}", response ? response->body : "null"),
@@ -207,6 +210,7 @@ std::tuple<std::string, std::string, int> TwitchClient::RefreshToken(
     try {
       auto json = nlohmann::json::parse(response->body);
       if (json.contains("access_token") && json["access_token"].is_string()) {
+        LOG(INFO) << "Token refreshed using refresh token";
         user_.reset(new TwitchUser(client_id_, json["access_token"]));
         return { json["access_token"], json["refresh_token"],
           json["expires_in"] };
@@ -215,6 +219,7 @@ std::tuple<std::string, std::string, int> TwitchClient::RefreshToken(
     }
   }
 
+  LOG(ERROR) << "Error refreshing token";
   return {};
 }
 
@@ -330,9 +335,9 @@ void TwitchClient::SetBroadcastInfo(const std::string& game_id,
                              Twitch::Endpoint::kChannels, user_id),
         headers, s.str(), kApplicationUrlEncode);
     if (!res)
-      OutputDebugStringA("Can't set broadcast info");
+      LOG(ERROR) << "Can't set broadcast info";
     else
-      OutputDebugStringA("Broadcast info set successfully");
+      LOG(INFO) << "Broadcast info set successfully";
   } catch (...) {
   }
 }
@@ -357,7 +362,7 @@ nlohmann::json TwitchGame::GetGameInfo(std::string const& game_name,
     std::string const& client_id,
     std::string const& jwt) {
   if (auto it = games_.find(game_name); it != games_.end()) {
-    OutputDebugStringA(("Returning cached response for " + game_name).c_str());
+    LOG(INFO) << "Returning cached response for " << game_name;
     return it->second;
   }
 
@@ -370,17 +375,17 @@ nlohmann::json TwitchGame::GetGameInfo(std::string const& game_name,
   params.emplace("name", game_name);
   auto res = cli.Get(Twitch::Endpoint::kGames, params, headers);
   if (!res) {
-    OutputDebugStringA(("Could not find data for " + game_name).c_str());
+    LOG(ERROR) << "Could not find data for " << game_name;
     return {};
   }
 
   try {
     auto json = nlohmann::json::parse(res->body);
-    OutputDebugStringA(json.dump().c_str());
+    LOG(INFO) << json.dump();
     games_.emplace(game_name, json);
     return json;
   } catch (...) {
-    OutputDebugStringA(("Error parsing JSON " + res->body).c_str());
+    LOG(ERROR) << "Error parsing JSON " << res->body;
   }
   return {};
 }
@@ -399,15 +404,15 @@ TwitchToken::TwitchToken(std::string access_token,
           if (!cv_.wait_for(lock,
                   std::chrono::seconds(exp - kRefreshBeforeSecs),
                   [&] { return quit_; })) {
-            OutputDebugStringA("Token is expiring soon; trying to refresh it");
+            LOG(INFO) << "Token is expiring soon; trying to refresh it";
             auto [access_token, refresh_token, new_expires_in] = fun(
                 refresh_token_);
             if (access_token.empty()) {
-              OutputDebugStringA("Could not refresh token");
+              LOG(ERROR) << "Could not refresh token";
               return;
             }
 
-            OutputDebugStringA("Token refreshed successfully");
+            LOG(INFO) << "Token refreshed successfully";
 
             access_token_ = std::move(access_token);
             refresh_token_ = std::move(refresh_token);
