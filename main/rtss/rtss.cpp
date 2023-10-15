@@ -52,7 +52,7 @@ void RTSSSharedMemory::Update() {
 }
 
 std::string RTSSSharedMemory::GetCurrentProcessName() {
-  if (current_process_.first == 0)
+  if (current_process_.first == 0 || current_process_.second == nullptr)
     return {};
 
   return current_process_.second->szName;
