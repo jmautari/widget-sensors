@@ -12,9 +12,9 @@ jobs:
 
     steps:
     - name: Setup MSBuild
-      uses: microsoft/setup-msbuild@v1.0.2
+      uses: microsoft/setup-msbuild@v1.3.1
     - name: Checkout repo
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
       with:
         submodules: true
     - name: Create project
@@ -35,7 +35,7 @@ jobs:
         copy third_party\steam\sdk\redistributable_bin\win64\*.dll build\Release\ /y
       shell: cmd
     - name: Save artifacts
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: ${{ env.PROJECT_NAME }}
         path: build/Release/*
