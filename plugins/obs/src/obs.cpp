@@ -68,7 +68,7 @@ bool ObsWebClient::Start(message_handler_t on_message) {
     try {
       client_.run();
     } catch (const std::exception& e) {
-      std::cout << e.what() << std::endl;
+      LOG(ERROR) << e.what();
     }
   });
   return true;
@@ -80,7 +80,7 @@ bool ObsWebClient::Send(connection_hdl hdl, const char* data, size_t size) {
     client_.send(hdl, data, size, websocketpp::frame::opcode::TEXT);
     return true;
   } catch (...) {
-    std::cout << "Cannot send " << size << " bytes" << std::endl;
+    LOG(ERROR) << "Cannot send " << size << " bytes";
     return false;
   }
 }
@@ -128,15 +128,15 @@ void ObsWebClient::Shutdown() {
 
 void ObsWebClient::OnOpen(connection_hdl hdl) {
   server_ = hdl;
-  std::cout << "Server connection opened" << std::endl;
+  LOG(INFO) << "Server connection opened";
 }
 
 void ObsWebClient::OnFail(connection_hdl hdl) {
-  std::cout << "Server connection failed" << std::endl;
+  LOG(ERROR) << "Server connection failed";
 }
 
 void ObsWebClient::OnClose(connection_hdl hdl) {
-  std::cout << "Server connection closed" << std::endl;
+  LOG(INFO) << "Server connection closed";
 }
 
 bool ObsWebClient::StreamStateChanged(nlohmann::json const& event_data) {

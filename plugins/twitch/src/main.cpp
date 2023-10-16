@@ -109,7 +109,8 @@ std::string FindGame(std::wstring executable) {
       break;
     }
 
-    LOG(INFO) << profile->profileName;
+    LOG(INFO) << wstring2string(
+        reinterpret_cast<wchar_t*>(profile->profileName));
     LOG(INFO) << "==";
 
     game = wstring2string(reinterpret_cast<wchar_t*>(profile->profileName));

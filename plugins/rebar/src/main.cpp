@@ -69,11 +69,8 @@ bool CheckReBar(NvDRSSessionHandle hSession, NvDRSProfileHandle hProfile) {
 bool FindGameProfile(std::wstring executable) {
   if (!init)
     return false;
-  else if (rebar_status.profile == executable) {
-    LOG(INFO) << "Returning cached result for " << wstring2string(executable)
-              << " res: " << (rebar_status.value ? L"true" : L"false");
+  else if (rebar_status.profile == executable)
     return rebar_status.value;
-  }
 
   rebar_status.profile = executable;
   rebar_status.value = false;

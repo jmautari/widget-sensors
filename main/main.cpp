@@ -60,16 +60,8 @@ using plugin_t = std::tuple<ScopedLoadLibrary,
     ProfileChanged_t>;
 using plugin_list_t = std::unordered_map<std::string, plugin_t>;
 
-constexpr wchar_t kHWINFO64Key[] = L"SOFTWARE\\HWiNFO64\\VSB";
-constexpr uint32_t kMaxKeys = 50;
-constexpr wchar_t kLabelKey[] = L"Label";
-constexpr wchar_t kSensorKey[] = L"Sensor";
-constexpr wchar_t kValuekey[] = L"Value";
-constexpr wchar_t kValueRawKey[] = L"ValueRaw";
-constexpr int32_t kIntervalMs = 500;
 constexpr wchar_t kDefaultDataDir[] = L"D:\\backgrounds";
 constexpr wchar_t kConfigFile[] = L"widget_sensors.json";
-constexpr wchar_t kSensorsFilename[] = L"sensors.json";
 constexpr wchar_t kInstanceMutex[] = L"widgetsensorinstance";
 constexpr wchar_t kGamesDatabase[] = L"gamedb.json";
 constexpr wchar_t kAppsDatabase[] = L"appdb.json";
@@ -83,12 +75,7 @@ constexpr char kPluginExecuteCommand[] = "ExecuteCommand";
 constexpr char kPluginProfileChanged[] = "ProfileChanged";
 
 constexpr unsigned kWebsocketPort = 30001;
-
-constexpr size_t kDataSize = 512;
-
-using wstr_ptr_t = std::unique_ptr<wchar_t[]>;
-using key_list_t = std::unordered_map<int32_t,
-    std::tuple<wstr_ptr_t, wstr_ptr_t, wstr_ptr_t, wstr_ptr_t>>;
+constexpr int32_t kIntervalMs = 500;
 
 std::unordered_multimap<std::string, std::filesystem::path> game_install_map;
 RECT current_window_size{};
@@ -97,65 +84,14 @@ plugin_list_t plugin_list;
 HANDLE instance_mutex = nullptr;
 HWND hwnd;
 HANDLE quit_event{};
-HKEY key;
 CRITICAL_SECTION cs;
 std::unique_ptr<char[]> json_data;
 size_t current_size{ 2048 };
 size_t last_size{};
-std::array<std::array<std::unique_ptr<wchar_t[]>, 4>, kMaxKeys> keys;
 std::unordered_map<size_t, nlohmann::json> custom_commands;
 windows::PowerUtil power_util;
 
 void AddMenu(HMENU hmenu, int& pos, nlohmann::json const& popup);
-
-inline constexpr auto get_value = [&](const wchar_t* k, wchar_t* data) {
-  auto size = static_cast<DWORD>(kDataSize);
-  DWORD type;
-  return RegQueryValueExW(key, k, nullptr, &type, reinterpret_cast<BYTE*>(data),
-             &size) == ERROR_SUCCESS;
-};
-
-void ReadRegistry(HKEY key, key_list_t& list) {
-  static bool first = true;
-  if (first) {
-    first = false;
-
-    wchar_t keyname[128];
-    const auto get_key = [&](
-        const wchar_t* k, uint32_t i) {
-      _snwprintf_s(keyname, _countof(keyname), _TRUNCATE, L"%s%d", k, i);
-      auto size = wcslen(keyname);
-      auto ptr = std::make_unique<wchar_t[]>(size + 1);  // + null terminator
-      memcpy(reinterpret_cast<void*>(ptr.get()), keyname,
-          (size + 1) * sizeof(wchar_t));
-      return ptr;
-    };
-
-    for (uint32_t i = 0; i < kMaxKeys; i++) {
-      keys[i][0] = get_key(kSensorKey, i);
-      keys[i][1] = get_key(kLabelKey, i);
-      keys[i][2] = get_key(kValuekey, i);
-      keys[i][3] = get_key(kValueRawKey, i);
-
-      std::get<0>(list[i]) = std::make_unique<wchar_t[]>(kDataSize);
-      std::get<1>(list[i]) = std::make_unique<wchar_t[]>(kDataSize);
-      std::get<2>(list[i]) = std::make_unique<wchar_t[]>(kDataSize);
-      std::get<3>(list[i]) = std::make_unique<wchar_t[]>(kDataSize);
-    }
-  }
-
-
-  for (uint32_t i = 0; i < kMaxKeys; i++) {
-    if (!get_value(keys[i][0].get(), std::get<0>(list[i]).get()))
-      continue;
-
-    if (!get_value(keys[i][1].get(), std::get<1>(list[i]).get()))
-      continue;
-
-    get_value(keys[i][2].get(), std::get<2>(list[i]).get());
-    //get_value(keys[i][3].get(), std::get<3>(list[i]).get());
-  }
-}
 
 bool IsRunning(HANDLE* mutex_handle) {
   auto handle = CreateMutexW(nullptr, true, kInstanceMutex);
@@ -550,15 +486,8 @@ auto StartMonitoring(const wchar_t* data_dir) {
 
   std::unique_ptr<network::WebsocketServer> server;
   int result = 0;
-  auto change_event = CreateEvent(nullptr, false, false, nullptr);
 
   do {
-    if (change_event == nullptr) {
-      LOG(ERROR) << "Cannot create event";
-      result = -1;
-      break;
-    }
-
     if (!std::filesystem::exists(path, ec)) {
       if (!std::filesystem::create_directories(path, ec)) {
         std::wcerr << L"Could not create data directory at " << path
@@ -594,26 +523,18 @@ auto StartMonitoring(const wchar_t* data_dir) {
       break;
     }
 
-    const auto sensor_path = std::filesystem::path(path) / kSensorsFilename;
-    const auto write_sensors_file = [&](auto&& data) {
-#if defined(USE_FILE)
-      HANDLE f = CreateFile(sensor_path.c_str(), GENERIC_WRITE, 0, nullptr,
-          CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-      if (f == INVALID_HANDLE_VALUE)
-        return;
+    std::wcout << L"Websocket server listening to port " << kWebsocketPort
+               << std::endl;
 
-      DWORD w;
-      const auto d = wstring2string(data);
-      WriteFile(f, d.c_str(), d.size(), &w, nullptr);
-      CloseHandle(f);
-#else
+    DWORD wait_result;
+    const auto write_sensors_file = [&](auto&& data) {
       EnterCriticalSection(&cs);
       const auto s = wstring2string(data);
       data_size = s.size();
       if (data_size > current_size) {
         auto new_size = data_size * 2;
-        std::cout << "Resizing buffer from " << current_size << " to "
-                  << new_size << std::endl;
+        LOG(INFO) << "Resizing buffer from " << current_size << " to "
+                  << new_size;
         current_size = new_size;
         json_data.reset(new char[current_size]);
         send_buffer.reset(new char[current_size]);
@@ -622,67 +543,11 @@ auto StartMonitoring(const wchar_t* data_dir) {
       memcpy(json_data.get(), s.c_str(), data_size);
       last_size = data_size;
       LeaveCriticalSection(&cs);
-#endif
-    };
-
-    std::wcout << L"Websocket server listening to port " << kWebsocketPort
-               << std::endl;
-
-    for (int retry = 30; retry > 0; retry--) {
-      if (RegOpenKeyExW(HKEY_CURRENT_USER, kHWINFO64Key, 0,
-              KEY_QUERY_VALUE | KEY_NOTIFY, &key) != ERROR_SUCCESS) {
-        LOG(ERROR) << "Cannot open registry key. Retrying...";
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-      } else {
-        LOG(INFO) << "Registry opened successfully";
-        break;
-      }
-    }
-
-    if (key == nullptr) {
-      LOG(ERROR) << "RegOpenKey failure";
-      result = 3;
-      break;
-    }
-
-    const auto registry_notify = [&change_event] {
-      auto reg_notify = RegNotifyChangeKeyValue(
-          key, true, REG_NOTIFY_CHANGE_LAST_SET, change_event, true);
-      if (reg_notify == ERROR_SUCCESS)
-        return true;
-
-      LOG(ERROR) << "Error subscribing to registry changes. Err: "
-                 << reg_notify;
-      return false;
-    };
-
-    std::array<HANDLE, 2> handles{ change_event, quit_event };
-    DWORD wait_result;
-    LARGE_INTEGER t1, now, freq;
-    double prev_time{};
-    double accum{};
-    double iter{};
-    key_list_t list;
-
-    const auto start_timer = [&t1] { QueryPerformanceCounter(&t1); };
-    const auto end_timer = [&] {
-      QueryPerformanceCounter(&now);
-      QueryPerformanceFrequency(&freq);
-      return static_cast<double>((now.QuadPart - t1.QuadPart) * 1000.0 /
-                                 static_cast<double>(freq.QuadPart));
     };
 
     do {
-      registry_notify();
-      start_timer();
       std::wostringstream o;
       o << LR"({"sensors":{)";
-      for (auto&& [k, v] : list) {
-        auto&& [sensor, label, value, value_raw] = v;
-        o << L"\"" << sensor << L"=>" << label << L"\": {\"index\":" << k
-          << L",\"sensor\": \"" << label << L"\",\"value\":\"" << value
-          << L"\",\"valueRaw\":\"" << value_raw << L"\"},";
-      }
 
       auto [framerate, framerate_raw] = rtss.GetFramerate();
       auto [frametime, frametime_raw] = rtss.GetFrametime();
@@ -758,67 +623,35 @@ auto StartMonitoring(const wchar_t* data_dir) {
             o << L"," << v;
         }
       }
-
-      iter += 1.0;
-      accum += prev_time;
-
-      const auto round_to = [](double value, double precision = 0.001) {
-        return std::round(value / precision) * precision;
-      };
-
-      o << L",\"perf\":{\"sensor\":\"deltaT\",\"value\":\""
-        << round_to(prev_time) << L"ms\"}";
-      o << L",\"perfAvg\":{\"sensor\":\"avgT\",\"value\":\""
-        << round_to(accum / iter) << L"ms\"}";
-
       o << L"}}";
 
       write_sensors_file(o.str());
 
-      prev_time = end_timer();
-
       auto before_check = std::chrono::system_clock::now();
-      for (;;) {
-        wait_result = WaitForMultipleObjects(
-            handles.size(), &handles[0], false, kIntervalMs >> 2);
-        if (wait_result == WAIT_TIMEOUT) {
-          continue;
-        } else if (wait_result == WAIT_OBJECT_0 + 1) {
-          break;
-        } else if (wait_result == WAIT_OBJECT_0) {
-          start_timer();
-          ReadRegistry(key, list);
-
-          prev_time = end_timer();
-          iter += 1.0;
-          accum += prev_time;
-
-          break;
-        }
+      wait_result = WaitForSingleObject(quit_event, kIntervalMs >> 2);
+      if (wait_result == WAIT_TIMEOUT) {
+        continue;
+      } else if (wait_result == WAIT_OBJECT_0) {
+        break;
       }
+
       auto after_check = std::chrono::duration_cast<std::chrono::milliseconds>(
           std::chrono::system_clock::now() - before_check);
       if (after_check.count() < kIntervalMs) {
         std::this_thread::sleep_for(
             std::chrono::milliseconds(kIntervalMs) - after_check);
       }
-    } while (wait_result == WAIT_OBJECT_0);
+    } while (wait_result != WAIT_OBJECT_0);
   } while (false);
 
   if (server)
     server->Shutdown();
 
-  if (key)
-    RegCloseKey(key);
-
-  if (change_event != nullptr)
-    CloseHandle(change_event);
-
   DeleteCriticalSection(&cs);
 
   Shutdown(0);
 
-  std::cout << std::endl << "Exiting..." << std::endl;
+  LOG(INFO) << "Exiting...";
   return result;
 }
 
