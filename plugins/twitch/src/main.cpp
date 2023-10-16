@@ -38,6 +38,7 @@ std::unique_ptr<network::TwitchClient> twitch;
 std::filesystem::path data_dir;
 std::filesystem::path db_file;
 core::SimpleDb game_db;
+std::string current_game;
 
 template<typename T>
 T GetConfigOrDefaultValue(nlohmann::json const& j,
@@ -168,7 +169,9 @@ bool DECLDLL PLUGIN InitPlugin(const std::filesystem::path& d,
 }
 
 std::wstring DECLDLL PLUGIN GetValues(const std::wstring& profile_name) {
-  return {};
+  return string2wstring(fmt::format(
+      "\"twitch=>game_name\":{{\"sensor\":\"game\",\"value\":\"{}\"}}",
+      current_game));
 }
 
 void DECLDLL PLUGIN ShutdownPlugin() {
@@ -205,13 +208,10 @@ bool DECLDLL PLUGIN ExecuteCommand(const std::string& command) {
 }
 
 void DECLDLL PLUGIN ProfileChanged(const std::string& pname) {
-  if (pname.empty())
+  if (pname.empty()) {
+    current_game.clear();
     return;
-
-  auto const filename = data_dir / L"history.txt";
-  std::ofstream file(filename, std::ios::app);
-  if (file.is_open())
-    file << pname << std::endl;
+  }
 
   if (!game_db.Load(db_file, true))
     LOG(ERROR) << "Could not load games database";
@@ -226,7 +226,7 @@ void DECLDLL PLUGIN ProfileChanged(const std::string& pname) {
     if (!game.empty()) {
       auto i = twitch->GetGameInfo(game);
       if (!i.contains("data") || !i["data"].is_array()) {
-        file << "No data for " << game << std::endl;
+        LOG(ERROR) << "No data for " << game;
         return;
       }
 
@@ -238,7 +238,7 @@ void DECLDLL PLUGIN ProfileChanged(const std::string& pname) {
       }
 
       if (game_id.empty()) {
-        file << "ID is empty for " << game << std::endl;
+        LOG(ERROR) << "ID is empty for " << game;
         return;
       }
 
@@ -249,7 +249,7 @@ void DECLDLL PLUGIN ProfileChanged(const std::string& pname) {
       });
       if (data.is_null()) {
         title = item["name"];
-        file << "Adding game " << game << " ID: " << game_id << std::endl;
+        LOG(INFO) << "Adding game " << game << " ID: " << game_id;
         // clang-format off
         // "box_art_url":"https://static-cdn.jtvnw.net/ttv-boxart/515025-{width}x{height}.jpg","id":"515025","igdb_id":"125174","name":"Overwatch 2
         // clang-format on
@@ -257,25 +257,27 @@ void DECLDLL PLUGIN ProfileChanged(const std::string& pname) {
         item["title"] = item["name"];
         if (game_db.Add(std::move(item))) {
           if (!game_db.Save())
-            file << "Could not save data" << std::endl;
+            LOG(ERROR) << "Could not save data";
           else
-            file << "Item added successfully" << std::endl;
+            LOG(INFO) << "Item added successfully";
         } else {
-          file << "Could not add item" << std::endl;
+          LOG(ERROR) << "Could not add item";
         }
       } else {
         title = data["title"];
-        file << "Found " << game << " Title: " << title << " ID: " << game_id
-             << std::endl;
+        LOG(INFO) << "Found " << game << " Title: " << title
+                  << " ID: " << game_id;
       }
+
+      current_game = fmt::format("{} ({})", game, game_id);
 
       LOG(INFO) << "Starting " << game << " id: " << game_id;
       twitch->SetBroadcastInfo(game_id, title);
     } else {
-      file << "Profile for " << pname << " was not found!" << std::endl;
+      LOG(ERROR) << "Profile for " << pname << " was not found!";
     }
   } catch (...) {
-    file << "Error processing game" << std::endl;
+    LOG(ERROR) << "Error processing game";
   }
 }
 // End exported functions
