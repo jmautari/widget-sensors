@@ -18,7 +18,7 @@ public:
     GetTwitchUserInfo(client_id, jwt);
   }
 
-  const nlohmann::json& GetUserInfo() const {
+  [[nodiscard]] const nlohmann::json& GetUserInfo() const {
     return user_info_;
   }
 
@@ -30,7 +30,7 @@ private:
 
 class TwitchGame {
 public:
-  nlohmann::json GetGameInfo(std::string const& game_name,
+  [[nodiscard]] nlohmann::json GetGameInfo(std::string const& game_name,
       std::string const& client_id,
       std::string const& jwt);
 
@@ -47,7 +47,7 @@ public:
       refresh_function_t refresh_fun);
   ~TwitchToken();
 
-  std::string const& GetAccessToken() {
+  [[nodiscard]] std::string const& GetAccessToken() {
     std::unique_lock lock(mutex_);
     return access_token_;
   }
@@ -105,10 +105,11 @@ private:
   void Console(const httplib::Request& req, httplib::Response& res);
 
   void ExchangeCodeWithToken(std::string const& code, httplib::Response& res);
-  std::tuple<std::string, std::string, int> RefreshToken(
+  [[nodiscard]] std::tuple<std::string, std::string, int> RefreshToken(
       std::string const& refresh_token);
 
-  std::string GetContent(int resource_id, const nlohmann::json& vars) const;
+  [[nodiscard]] std::string GetContent(int resource_id,
+      const nlohmann::json& vars) const;
 
   std::filesystem::path data_dir_;
   std::thread runner_;

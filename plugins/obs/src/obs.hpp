@@ -42,7 +42,7 @@ public:
 
   void StopStream();
 
-  OutputState const& GetOutputState() const {
+  [[nodiscard]] OutputState const& GetOutputState() const {
     return state_;
   }
 
@@ -55,7 +55,8 @@ private:
   bool StreamStateChanged(nlohmann::json const& event_data);
   bool ReplayBufferStateChanged(nlohmann::json const& event_data);
 
-  std::string GeneratePaswordHash(nlohmann::json const& payload) const;
+  [[nodiscard]] std::string GeneratePaswordHash(
+      nlohmann::json const& payload) const;
 
   std::filesystem::path data_dir_;
   std::thread runner_;

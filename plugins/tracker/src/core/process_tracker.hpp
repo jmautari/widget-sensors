@@ -11,9 +11,9 @@ public:
 
   bool Delete(int pid);
 
-  int GetPidByProcessName(std::string const& process_name) const;
+  [[nodiscard]] int GetPidByProcessName(std::string const& process_name) const;
 
-  auto GetSize() const noexcept {
+  [[nodiscard]] auto GetSize() const noexcept {
     return list_.size();
   }
 

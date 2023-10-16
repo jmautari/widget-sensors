@@ -22,7 +22,7 @@ public:
   bool Initialize();
   void Shutdown();
 
-  std::wstring GetData();
+  [[nodiscard]] std::wstring GetData();
 
 private:
   void Runner();
