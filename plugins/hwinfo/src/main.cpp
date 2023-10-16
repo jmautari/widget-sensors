@@ -20,7 +20,7 @@ bool DECLDLL PLUGIN InitPlugin(const std::filesystem::path& data_dir,
 
   init = hwinfo.Initialize();
   debug = debug_mode;
-  return true;
+  return init;
 }
 
 std::wstring DECLDLL PLUGIN GetValues(const std::wstring& profile_name) {
