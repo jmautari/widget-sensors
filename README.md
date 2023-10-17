@@ -1,8 +1,10 @@
-# Widget Sensors
+# Widget Sensors [![Builder](https://github.com/jmautari/widget-sensors/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/jmautari/widget-sensors/actions/workflows/build.yml)
+
+**Refactoring in progress**
 
 https://user-images.githubusercontent.com/5205328/141605232-7a6a453a-8ed0-460c-9b07-933130c0994c.mp4
 
-Background tool that reads [HWINFO64](#download) sensors data from Windows registry and saves available data to a JSON file with the following structure:
+Tool that reads [HWINFO64](#download) sensors data from Windows registry and serves data to remote local computers via WebSocket server.
 
 ```
 {
