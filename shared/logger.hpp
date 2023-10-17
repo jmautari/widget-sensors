@@ -1,6 +1,4 @@
 #pragma once
-#define _CRT_SECURE_NO_WARNINGS
-
 #include "shared/platform.hpp"
 #include <ShlObj.h>
 #include <ctime>
