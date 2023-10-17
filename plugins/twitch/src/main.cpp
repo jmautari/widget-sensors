@@ -221,8 +221,8 @@ void DECLDLL PLUGIN ProfileChanged(const std::string& pname) {
     std::string exe = p.filename().u8string();
     auto const& game_data = game_db.Find(
         [&](auto&& it) { return exe == it["exe"]; });
-    std::string const game = game_data.is_null() ? FindGame(p.wstring())
-                                                 : game_data["name"];
+    std::string game = game_data.is_null() ? FindGame(p.wstring())
+                                           : game_data["name"];
     if (!game.empty()) {
       auto i = twitch->GetGameInfo(game);
       if (!i.contains("data") || !i["data"].is_array()) {
@@ -269,10 +269,9 @@ void DECLDLL PLUGIN ProfileChanged(const std::string& pname) {
                   << " ID: " << game_id;
       }
 
-      current_game = fmt::format("{} ({})", game, game_id);
-
       LOG(INFO) << "Starting " << game << " id: " << game_id;
       twitch->SetBroadcastInfo(game_id, title);
+      current_game = std::move(game);
     } else {
       LOG(ERROR) << "Profile for " << pname << " was not found!";
     }
