@@ -24,6 +24,7 @@
  */
 #include "shared/platform.hpp"
 #include "shared/logger.hpp"
+#include "shared/ignore_list.hpp"
 #include "shared/widget_plugin.h"
 #include "shared/string_util.h"
 #include "shared/power_util.hpp"
@@ -89,6 +90,8 @@ constexpr wchar_t kConfigFile[] = L"widget_sensors.json";
 constexpr wchar_t kInstanceMutex[] = L"widgetsensorinstance";
 constexpr wchar_t kGamesDatabase[] = L"gamedb.json";
 constexpr wchar_t kAppsDatabase[] = L"appdb.json";
+constexpr wchar_t kIgnoreList[] = L"ignore_list.json";
+
 constexpr wchar_t kPluginsDir[] = L"plugins";
 constexpr wchar_t kPluginExtension[] = L".dll";
 
@@ -113,6 +116,7 @@ std::unique_ptr<char[]> json_data;
 size_t current_size{ 2048 };
 size_t last_size{};
 std::unordered_map<size_t, nlohmann::json> custom_commands;
+shared::IgnoreList ignore_list;
 windows::PowerUtil power_util;
 
 void AddMenu(HMENU hmenu, int& pos, nlohmann::json const& popup);
@@ -514,12 +518,16 @@ auto StartMonitoring(const wchar_t* data_dir) {
   do {
     if (!std::filesystem::exists(path, ec)) {
       if (!std::filesystem::create_directories(path, ec)) {
-        std::wcerr << L"Could not create data directory at " << path
-                   << L". Err code: " << GetLastError() << std::endl;
+        LOG(ERROR) << "Could not create data directory at " << path.u8string()
+                   << ". Err code: " << GetLastError();
         result = 1;
         break;
       }
     }
+
+    if (!ignore_list.LoadList(path / kIgnoreList))
+      LOG(WARN) << "Could not load ignore list from "
+                << (path / kIgnoreList).u8string();
 
     std::wstring current_profile;
     uint32 current_app{};
@@ -576,12 +584,17 @@ auto StartMonitoring(const wchar_t* data_dir) {
       auto [framerate, framerate_raw] = rtss.GetFramerate();
       auto [frametime, frametime_raw] = rtss.GetFrametime();
       auto pname = string2wstring(rtss.GetCurrentProcessName());
-      auto const process_name = [&] {
+      auto process_name = [&] {
         if (auto const p = pname.rfind(L'\\'); p != std::string::npos)
           return &pname.c_str()[p + 1];
 
         return pname.c_str();
       }();
+
+      if (ignore_list.IsIgnoredProcess(pname)) {
+        process_name = L"";
+        pname.clear();
+      }
 
       uint32 app_id{};
       if (!pname.empty()) {
