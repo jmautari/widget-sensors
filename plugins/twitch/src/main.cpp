@@ -64,6 +64,7 @@ std::filesystem::path data_dir;
 std::filesystem::path db_file;
 core::SimpleDb game_db;
 std::string current_game;
+std::string current_poster;
 
 template<typename T>
 T GetConfigOrDefaultValue(nlohmann::json const& j,
@@ -195,8 +196,9 @@ bool DECLDLL PLUGIN InitPlugin(const std::filesystem::path& d,
 
 std::wstring DECLDLL PLUGIN GetValues(const std::wstring& profile_name) {
   return string2wstring(fmt::format(
-      "\"twitch=>game_name\":{{\"sensor\":\"game\",\"value\":\"{}\"}}",
-      current_game));
+      "\"twitch=>game_name\":{{\"sensor\":\"game\",\"value\":\"{}\"}},"
+      "\"twitch=>game_cover\":{{\"sensor\":\"game\",\"value\":\"{}\"}}",
+      current_game, current_poster));
 }
 
 void DECLDLL PLUGIN ShutdownPlugin() {
@@ -260,6 +262,7 @@ void DECLDLL PLUGIN ProfileChanged(const std::string& pname) {
       if (i["data"].size() > 0 && !i["data"][0].is_null()) {
         item = i["data"][0];
         game_id = item["id"];
+        current_poster = item["box_art_url"];
       }
 
       if (game_id.empty()) {
@@ -280,6 +283,7 @@ void DECLDLL PLUGIN ProfileChanged(const std::string& pname) {
         // clang-format on
         item["exe"] = exe;
         item["title"] = item["name"];
+        current_poster = item["box_art_url"];
         if (game_db.Add(std::move(item))) {
           if (!game_db.Save())
             LOG(ERROR) << "Could not save data";
@@ -290,11 +294,13 @@ void DECLDLL PLUGIN ProfileChanged(const std::string& pname) {
         }
       } else {
         title = data["title"];
+        current_poster = data["box_art_url"];
         LOG(INFO) << "Found " << game << " Title: " << title
-                  << " ID: " << game_id;
+                  << " ID: " << game_id << " poster: " << current_poster;
       }
 
-      LOG(INFO) << "Starting " << game << " id: " << game_id;
+      LOG(INFO) << "Starting " << game << " id: " << game_id
+                << " poster: " << current_poster;
       twitch->SetBroadcastInfo(game_id, title);
       current_game = std::move(game);
     } else {
