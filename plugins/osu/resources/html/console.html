@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <style type="text/css">
+      body {
+        color: #fff;
+        background-color: #000;
+      }
+
+      .body {
+        width: 800px;
+      }
+
+      #url {
+        width: 660px;
+      }
+
+      #response {
+        width: 800px;
+        height: 400px;
+      }
+
+      .secret, .copy {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <p>
+      Client ID: <span id="client_id" class="secret"><b>${client_id}</b></span
+      ><button class="reveal" data-custom-data="client_id">Reveal</button>
+      <button class="copy" data-custom-data="client_id">Copy</button>
+    </p>
+    <p>
+      Access Token:
+      <span id="access_token" class="secret"><b>${access_token}</b></span
+      ><button class="reveal" data-custom-data="access_token">Reveal</button>
+      <button class="copy" data-custom-data="access_token">Copy</button>
+    </p>
+    <p>
+      User ID: <span id="user_id" class="secret"><b>${user_id}</b></span>
+      <button class="reveal" data-custom-data="user_id">Reveal</button>
+      <button class="copy" data-custom-data="user_id">Copy</button>
+    </p>
+    <form>
+      <p>
+        <select id="method">
+          <option>GET</option>
+          <option>POST</option>
+          <option>PATCH</option>
+          <option>PUT</option>
+          <option>DELETE</option>
+        </select>
+        <input
+          type="text"
+          id="url"
+          size="120"
+          value="${host}/api/v2/me"
+        />
+        <input type="button" id="send" value="SEND" />
+      </p>
+      <p><textarea id="body" cols="100" rows="6" class="body"></textarea></p>
+      <p>
+        <textarea id="response" cols="100" rows="20" class="body"></textarea>
+      </p>
+    </form>
+
+    <script type="text/javascript">
+      <!--
+      const copyToClipboard = (text) => {
+        var tempTextarea = document.createElement('textarea');
+        tempTextarea.value = text;
+        document.body.appendChild(tempTextarea);
+        tempTextarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(tempTextarea);
+      };
+      const getCopyFor = (id) => {
+        let element;
+        document.querySelectorAll(".copy").forEach(function (el) {
+          const field = el.dataset.customData || undefined;
+          if (field === id)
+            element = el;
+        });
+        return element;
+      };
+      document.querySelectorAll(".reveal").forEach(function (el) {
+        el.addEventListener("click", function (event) {
+          event.preventDefault();
+          const field = el.dataset.customData || undefined;
+          if (field) {
+            const copy = getCopyFor(field);
+            const secret = document.getElementById(field);
+            el.classList.add("secret");
+            secret.classList.remove("secret");
+            copy.classList.remove("copy");
+            window.setTimeout(() => {
+              el.classList.remove("secret");
+              secret.classList.add("secret");
+              copy.classList.add("copy");
+            }, 3000);
+          }
+        });
+      });
+      document.querySelectorAll(".copy").forEach(function (el) {
+        el.addEventListener("click", function (event) {
+          event.preventDefault();
+          const field = el.dataset.customData || undefined;
+          if (field) {
+            const secret = document.getElementById(field);
+            if (secret.innerText)
+              copyToClipboard(secret.innerText);
+          }
+        });
+      });
+      const sendButton = document.getElementById("send");
+      sendButton.addEventListener("click", function (event) {
+          event.preventDefault();
+          sendButton.value = 'WAIT';
+          sendButton.disabled = true;
+          var url = document.getElementById("url").value;
+          var method = document.getElementById("method").value;
+          var body = document.getElementById("body").value;
+          var xhr = new XMLHttpRequest();
+          xhr.open("POST", "http://localhost:${port}/console", true);
+          xhr.setRequestHeader(
+            "Content-Type",
+            "application/x-www-form-urlencoded"
+          );
+          xhr.onload = function () {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              var t = "No response (Status=" + xhr.status + ")";
+              if (xhr.responseText) {
+                try {
+                  t = JSON.stringify(JSON.parse(xhr.responseText), null, 2);
+                } catch (e) {
+                  console.log('Error processing JSON', e);
+                }
+              }
+              document.getElementById("response").value = t;
+            } else {
+              document.getElementById("response").textContent = xhr.status;
+            }
+            sendButton.value = 'SEND';
+            sendButton.disabled = false;
+          };
+          xhr.onerror = function () {
+            document.getElementById("response").textContent = "Request failed";
+            sendButton.value = 'SEND';
+            sendButton.disabled = false;
+          };
+          var data =
+            "url=" +
+            encodeURIComponent(url) +
+            "&method=" +
+            encodeURIComponent(method) +
+            "&body=" +
+            encodeURIComponent(body);
+          xhr.send(data);
+        });
+      //-->
+    </script>
+  </body>
+</html>

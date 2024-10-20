@@ -106,6 +106,7 @@ constexpr int32_t kIntervalMs = 500;
 
 std::unordered_multimap<std::string, std::filesystem::path> game_install_map;
 RECT current_window_size{};
+std::wstring custom_cover;
 std::shared_mutex window_mutex;
 plugin_list_t plugin_list;
 HANDLE instance_mutex = nullptr;
@@ -118,6 +119,9 @@ size_t last_size{};
 std::unordered_map<size_t, nlohmann::json> custom_commands;
 shared::IgnoreList ignore_list;
 windows::PowerUtil power_util;
+std::unordered_map<std::string,
+    std::function<std::string(nlohmann::json const&)>>
+    message_handler;
 
 void AddMenu(HMENU hmenu, int& pos, nlohmann::json const& popup);
 
@@ -503,6 +507,14 @@ BOOL WINAPI Shutdown(DWORD) {
   return TRUE;
 }
 
+std::string HandleWebsocketMessage(nlohmann::json const& msg) {
+  std::string action = msg["action"];
+  if (auto it = message_handler.find(action); it != message_handler.end())
+    return it->second(msg["data"]);
+
+  return "";
+}
+
 auto StartMonitoring(const wchar_t* data_dir) {
   std::error_code ec;
   if (data_dir == nullptr || !std::filesystem::exists(data_dir, ec) ||
@@ -514,6 +526,9 @@ auto StartMonitoring(const wchar_t* data_dir) {
 
   std::unique_ptr<network::WebsocketServer> server;
   int result = 0;
+
+  message_handler.emplace(
+      "cover", [&](auto&& json) -> std::string { return json["src"]; });
 
   do {
     if (!std::filesystem::exists(path, ec)) {
@@ -541,13 +556,30 @@ auto StartMonitoring(const wchar_t* data_dir) {
       current_profile = std::move(pname);
     };
 
+    const auto get_cover = [&](const std::string& msg) -> std::string {
+      try {
+        const auto json = nlohmann::json::parse(msg);
+        if (!json.contains("msg") || !json["msg"].is_object())
+          return "";
+
+        return HandleWebsocketMessage(json["msg"]);
+      } catch (...) {
+      }
+      return "";
+    };
+
     server = std::make_unique<network::WebsocketServer>(kWebsocketPort);
     if (!server->Start([&](auto&& hdl, auto&& msg) {
-          EnterCriticalSection(&cs);
-          memcpy(send_buffer.get(), json_data.get(), data_size);
-          LeaveCriticalSection(&cs);
+          std::string cover = get_cover(msg);
+          if (cover.empty()) {
+            EnterCriticalSection(&cs);
+            memcpy(send_buffer.get(), json_data.get(), data_size);
+            LeaveCriticalSection(&cs);
 
-          server->Send(hdl, send_buffer.get(), data_size);
+            server->Send(hdl, send_buffer.get(), data_size);
+          } else {
+            custom_cover = string2wstring(cover);
+          }
         })) {
       std::cerr << "Could not start websocket server on port " << kWebsocketPort
                 << std::endl;
@@ -651,6 +683,8 @@ auto StartMonitoring(const wchar_t* data_dir) {
       } else {
         o << L"\"game=>size\": {\"sensor\":\"size\",\"value\":\"\"}";
       }
+      o << L",\"custom_cover\": {\"sensor\":\"size\",\"value\":\""
+        << custom_cover << L"\"}";
 
       for (auto& [plugin_name, p] : plugin_list) {
         auto const getvalues = std::get<2>(p);
@@ -977,7 +1011,7 @@ int WINAPI wWinMain(HINSTANCE hInstance,
     PWSTR pCmdLine,
     int nCmdShow) {
   if (IsRunning(&instance_mutex)) {
-    std::cerr << "Another instance is already running" << std::endl;
+    LOG(ERROR) << "Another instance is already running";
     return 1;
   }
 
@@ -988,8 +1022,41 @@ int WINAPI wWinMain(HINSTANCE hInstance,
     return 1;
 
   quit_event = CreateEvent(nullptr, true, false, nullptr);
-  if (quit_event == nullptr)
+  if (quit_event == nullptr) {
+    LOG(ERROR) << "Cannot create event. Err: " << GetLastError();
     return 1;
+  }
+
+  // Step 1: --------------------------------------------------
+  // Initialize COM. ------------------------------------------
+
+  HRESULT hres = CoInitializeEx(0, COINIT_MULTITHREADED);
+  if (FAILED(hres)) {
+    LOG(ERROR) << "Failed to initialize COM library. Error code = 0x"
+               << std::hex << hres;
+    return 1;
+  }
+
+  auto finalize_com = [] { CoUninitialize(); };
+
+  // Step 2: --------------------------------------------------
+  // Set general COM security levels --------------------------
+
+  hres = CoInitializeSecurity(NULL,
+      -1,                           // COM negotiates service
+      NULL,                         // Authentication services
+      NULL,                         // Reserved
+      RPC_C_AUTHN_LEVEL_DEFAULT,    // Default authentication
+      RPC_C_IMP_LEVEL_IMPERSONATE,  // Default Impersonation
+      NULL,                         // Authentication info
+      EOAC_NONE,                    // Additional capabilities
+      NULL                          // Reserved
+  );
+  if (FAILED(hres)) {
+    LOG(ERROR) << "Failed to initialize security. Error code = 0x" << std::hex
+               << hres;
+    return 1;
+  }
 
   InitializeCriticalSection(&cs);
 

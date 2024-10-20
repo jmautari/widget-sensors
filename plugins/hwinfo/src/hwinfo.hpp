@@ -12,7 +12,7 @@ using wstr_ptr_t = std::unique_ptr<wchar_t[]>;
 using key_list_t = std::unordered_map<int32_t,
     std::tuple<wstr_ptr_t, wstr_ptr_t, wstr_ptr_t, wstr_ptr_t>>;
 
-constexpr uint32_t kMaxKeys = 50;
+constexpr uint32_t kMaxKeys = 100;
 
 class HwInfo {
 public:
