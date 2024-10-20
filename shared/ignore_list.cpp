@@ -28,7 +28,23 @@
 #include <string>
 
 namespace shared {
+IgnoreList::IgnoreList() {
+  quit_event_ = CreateEvent(nullptr, false, false, nullptr);
+}
+
+IgnoreList::~IgnoreList() {
+  if (quit_event_) {
+    SetEvent(quit_event_);
+    WaitForSingleObject(watcher_thread_, INFINITE);
+    CloseHandle(quit_event_);
+  }
+
+  if (file_watcher_ != INVALID_HANDLE_VALUE)
+    FindCloseChangeNotification(file_watcher_);
+}
+
 bool IgnoreList::LoadList(std::filesystem::path filename) {
+  std::unique_lock lock(mutex_);
   filename_ = std::move(filename);
 
   try {
@@ -40,9 +56,18 @@ bool IgnoreList::LoadList(std::filesystem::path filename) {
     if (!data.contains("ignore_list") || !data["ignore_list"].is_array())
       return false;
 
+    data_.clear();
     for (auto [a, i] : data["ignore_list"].items()) {
       std::string exe = i["exe"];
       data_.emplace(ToLower(exe));
+    }
+
+    if (file_watcher_ == INVALID_HANDLE_VALUE) {
+      auto p = filename_;
+      file_watcher_ = FindFirstChangeNotificationW(
+          p.remove_filename().c_str(), false, FILE_NOTIFY_CHANGE_LAST_WRITE);
+      watcher_thread_ = CreateThread(
+          nullptr, 0, &IgnoreList::StartWatcherThread, this, 0, 0);
     }
 
     return true;
@@ -92,6 +117,48 @@ void IgnoreList::Save() {
 
   std::ofstream file(filename_, std::ios::trunc);
   file << data.dump(2);
+}
+
+void IgnoreList::WatcherThread() {
+  DWORD res;
+  HANDLE handles[]{ quit_event_, file_watcher_ };
+  std::vector<wchar_t> buffer;
+  buffer.resize(4096);
+  do {
+    res = WaitForMultipleObjects(_countof(handles), handles, false, INFINITE);
+    if (res != WAIT_OBJECT_0 + 1)
+      continue;
+
+    // Enumerate changes
+    DWORD bytes_read;
+    if (ReadDirectoryChangesW(file_watcher_, buffer.data(), buffer.size(),
+            false, FILE_NOTIFY_CHANGE_LAST_WRITE, &bytes_read, nullptr,
+            nullptr)) {
+      // Process the changes
+      auto const ignore_list_file = filename_.filename();
+      auto info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(buffer.data());
+      do {
+        std::wstring file = info->FileName;
+        if (file == ignore_list_file)
+          static_cast<void>(LoadList(filename_));
+
+        if (info->NextEntryOffset == 0)
+          break;
+
+        info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(
+            reinterpret_cast<BYTE*>(info) + info->NextEntryOffset);
+      } while (info);
+    }
+
+    if (!FindNextChangeNotification(file_watcher_))
+      break;
+  } while (res == WAIT_OBJECT_0 + 1);
+}
+
+DWORD WINAPI IgnoreList::StartWatcherThread(LPVOID param) {
+  auto self = reinterpret_cast<IgnoreList*>(param);
+  self->WatcherThread();
+  return 0;
 }
 
 std::string const& ToLower(std::string& str) {

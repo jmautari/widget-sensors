@@ -23,6 +23,7 @@
  * SOFTWARE.
  */
 #pragma once
+#include "shared/platform.hpp"
 #include <filesystem>
 #include <shared_mutex>
 #include <set>
@@ -30,16 +31,25 @@
 namespace shared {
 class IgnoreList {
 public:
+  IgnoreList();
+  ~IgnoreList();
+
   [[nodiscard]] bool LoadList(std::filesystem::path filename);
   [[nodiscard]] bool IsIgnoredProcess(std::filesystem::path path);
   bool AddProcess(std::filesystem::path const& path);
 
   void Save();
+  void WatcherThread();
 
 private:
   std::filesystem::path filename_;
   std::set<std::string> data_;
   std::shared_mutex mutex_;
+  HANDLE watcher_thread_ {};
+  HANDLE file_watcher_{ INVALID_HANDLE_VALUE };
+  HANDLE quit_event_{};
+
+  static DWORD WINAPI StartWatcherThread(LPVOID param);
 };
 
 static std::string const& ToLower(std::string& str);
