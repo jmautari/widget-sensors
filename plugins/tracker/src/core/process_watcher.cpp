@@ -24,6 +24,7 @@
  * SOFTWARE.
  */
 #include "process_watcher.hpp"
+#include "shared/logger.hpp"
 #include <array>
 
 namespace core {
@@ -34,43 +35,17 @@ ProcessWatcher::~ProcessWatcher() {
 }
 
 void ProcessWatcher::WatcherThread() {
-  // Step 1: --------------------------------------------------
-  // Initialize COM. ------------------------------------------
-
-  HRESULT hres = CoInitializeEx(0, COINIT_MULTITHREADED);
-  if (FAILED(hres)) {
-    printf("Failed to initialize COM library. Error code = 0x%X", hres);
-    return;
-  }
-
   do {
-    // Step 2: --------------------------------------------------
-    // Set general COM security levels --------------------------
-
-    hres = CoInitializeSecurity(NULL,
-        -1,                           // COM negotiates service
-        NULL,                         // Authentication services
-        NULL,                         // Reserved
-        RPC_C_AUTHN_LEVEL_DEFAULT,    // Default authentication
-        RPC_C_IMP_LEVEL_IMPERSONATE,  // Default Impersonation
-        NULL,                         // Authentication info
-        EOAC_NONE,                    // Additional capabilities
-        NULL                          // Reserved
-    );
-    if (FAILED(hres)) {
-      printf("Failed to initialize security. Error code = 0x%X", hres);
-      break;
-    }
-
     // Step 3: ---------------------------------------------------
     // Obtain the initial locator to WMI -------------------------
 
     CComPtr<IWbemLocator> pLoc;
 
-    hres = CoCreateInstance(
+    HRESULT hres = CoCreateInstance(
         CLSID_WbemLocator, 0, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pLoc));
     if (FAILED(hres)) {
-      printf("Failed to create IWbemLocator object. Err code = 0x%X", hres);
+      LOG(ERROR) << "Failed to create IWbemLocator object. Err code = 0x"
+                 << std::hex << hres;
       break;
     }
 
@@ -84,11 +59,11 @@ void ProcessWatcher::WatcherThread() {
     hres = pLoc->ConnectServer(
         _bstr_t(L"ROOT\\CIMV2"), NULL, NULL, 0, NULL, 0, 0, &pSvc);
     if (FAILED(hres)) {
-      printf("Could not connect. Error code = 0x%X", hres);
+      LOG(ERROR) << "Could not connect. Error code = 0x" << std::hex << hres;
       break;
     }
 
-    printf("Connected to ROOT\\CIMV2 WMI namespace\n");
+    LOG(INFO) << "Connected to ROOT\\CIMV2 WMI namespace";
 
     // Step 5: --------------------------------------------------
     // Set security levels on the proxy -------------------------
@@ -103,7 +78,8 @@ void ProcessWatcher::WatcherThread() {
         EOAC_NONE                     // proxy capabilities
     );
     if (FAILED(hres)) {
-      printf("Could not set proxy blanket. Error code = 0x%X", hres);
+      LOG(ERROR) << "Could not set proxy blanket. Error code = 0x" << std::hex
+                 << hres;
       break;
     }
 
@@ -157,16 +133,18 @@ void ProcessWatcher::WatcherThread() {
       auto p = create_event_listener(
           queries[i].first, queries[i].second.c_str(), stubs[i]);
       if (FAILED(hres)) {
-        printf("Could not create event listener for %s. HR=0x%X\n",
-            queries[i].first.c_str(), hres);
+        LOG(ERROR) << "Could not create event listener for " << queries[i].first
+                   << ". HR=0x" << hres;
         break;
       }
 
       events[i] = std::move(p);
     }
 
-    if (FAILED(hres))
+    if (FAILED(hres)) {
+      LOG(ERROR) << "General failure. HR=0x" << std::hex << hres;
       break;
+    }
 
     // Wait for the done event
     {
@@ -177,7 +155,7 @@ void ProcessWatcher::WatcherThread() {
     for (size_t i = 0; i < sizeof(queries) / sizeof(queries[0]); i++) {
       hres = pSvc->CancelAsyncCall(stubs[i]);
       if (FAILED(hres))
-        printf("Failure\n");
+        LOG(ERROR) << "Failure. HR=0x" << std::hex << hres;
 
       events[i].release();
     }
