@@ -131,6 +131,9 @@ void HwInfo::Runner() {
     std::wostringstream o;
     for (auto&& [k, v] : list) {
       auto&& [sensor, label, value, value_raw] = v;
+      if (wcslen(sensor.get()) == 0)
+        continue;
+
       o << L"\"" << sensor << L"=>" << label << L"\": {\"index\":" << k
         << L",\"sensor\": \"" << label << L"\",\"value\":\"" << value
         << L"\",\"valueRaw\":\"" << value_raw << L"\"},";
