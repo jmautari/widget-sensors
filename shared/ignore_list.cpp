@@ -23,6 +23,7 @@
  * SOFTWARE.
  */
 #include "shared/ignore_list.hpp"
+#include "shared/logger.hpp"
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <string>
@@ -64,8 +65,10 @@ bool IgnoreList::LoadList(std::filesystem::path filename) {
 
     if (file_watcher_ == INVALID_HANDLE_VALUE) {
       auto p = filename_;
-      file_watcher_ = FindFirstChangeNotificationW(
-          p.remove_filename().c_str(), false, FILE_NOTIFY_CHANGE_LAST_WRITE);
+      file_watcher_ = CreateFileW(p.remove_filename().c_str(),
+          FILE_LIST_DIRECTORY | GENERIC_READ,
+          FILE_SHARE_WRITE | FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+          FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, nullptr);
       watcher_thread_ = CreateThread(
           nullptr, 0, &IgnoreList::StartWatcherThread, this, 0, 0);
     }
@@ -120,39 +123,49 @@ void IgnoreList::Save() {
 }
 
 void IgnoreList::WatcherThread() {
+  OVERLAPPED ovl{};
+  ovl.hEvent = CreateEvent(nullptr, true, false, nullptr);
+  if (ovl.hEvent == nullptr) {
+    LOG(ERROR) << "Could not start directory watcher. Err: " << GetLastError();
+    return;
+  }
+  HANDLE handles[]{ quit_event_, ovl.hEvent };
   DWORD res;
-  HANDLE handles[]{ quit_event_, file_watcher_ };
   std::vector<wchar_t> buffer;
   buffer.resize(4096);
-  do {
+  DWORD bytes_read;
+
+  ReadDirectoryChangesW(file_watcher_, buffer.data(), buffer.size(), false,
+      FILE_NOTIFY_CHANGE_LAST_WRITE, &bytes_read, &ovl, nullptr);
+
+  while (true) {
     res = WaitForMultipleObjects(_countof(handles), handles, false, INFINITE);
     if (res != WAIT_OBJECT_0 + 1)
-      continue;
-
-    // Enumerate changes
-    DWORD bytes_read;
-    if (ReadDirectoryChangesW(file_watcher_, buffer.data(), buffer.size(),
-            false, FILE_NOTIFY_CHANGE_LAST_WRITE, &bytes_read, nullptr,
-            nullptr)) {
-      // Process the changes
-      auto const ignore_list_file = filename_.filename();
-      auto info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(buffer.data());
-      do {
-        std::wstring file = info->FileName;
-        if (file == ignore_list_file)
-          static_cast<void>(LoadList(filename_));
-
-        if (info->NextEntryOffset == 0)
-          break;
-
-        info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(
-            reinterpret_cast<BYTE*>(info) + info->NextEntryOffset);
-      } while (info);
-    }
-
-    if (!FindNextChangeNotification(file_watcher_))
       break;
-  } while (res == WAIT_OBJECT_0 + 1);
+
+    // Process the changes
+    auto const ignore_list_file = filename_.filename();
+    auto info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(buffer.data());
+    DWORD bytes;
+    GetOverlappedResult(file_watcher_, &ovl, &bytes, false);
+    do {
+      std::wstring file = info->FileName;
+      if (file == ignore_list_file)
+        static_cast<void>(LoadList(filename_));
+
+      if (info->NextEntryOffset == 0)
+        break;
+
+      info = reinterpret_cast<FILE_NOTIFY_INFORMATION*>(
+          reinterpret_cast<BYTE*>(info) + info->NextEntryOffset);
+    } while (info);
+
+    ResetEvent(ovl.hEvent);
+    ReadDirectoryChangesW(file_watcher_, buffer.data(), buffer.size(), false,
+        FILE_NOTIFY_CHANGE_LAST_WRITE, &bytes_read, &ovl, nullptr);
+  }
+
+  CloseHandle(ovl.hEvent);
 }
 
 DWORD WINAPI IgnoreList::StartWatcherThread(LPVOID param) {
