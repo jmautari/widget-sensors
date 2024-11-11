@@ -77,6 +77,7 @@ T GetConfigOrDefaultValue(nlohmann::json const& j,
 }
 
 void StartTwitchBackend() {
+  LOG(INFO) << __FUNCTION__;
   twitch->StartListen(twitch_config.client_id, twitch_config.secret,
       twitch_config.ip, twitch_config.port);
 
@@ -158,13 +159,19 @@ bool DECLDLL PLUGIN InitPlugin(const std::filesystem::path& d,
 
   auto config_file = data_dir / kConfigFile;
   std::error_code ec;
-  if (!std::filesystem::exists(config_file, ec))
+  if (!std::filesystem::exists(config_file, ec)) {
+    LOG(ERROR) << "File " << config_file.u8string() << " does not exist";
     return false;
+  }
+
+  LOG(INFO) << "Using config file " << config_file.u8string();
 
   try {
     std::ifstream f(config_file);
-    if (!f.good())
+    if (!f.good()) {
+      LOG(ERROR) << "Could not open config file";
       return false;
+    }
 
     auto const cfg = nlohmann::json::parse(f);
     auto client_id = GetConfigOrDefaultValue<std::string>(cfg, "client_id", {});
