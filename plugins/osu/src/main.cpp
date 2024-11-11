@@ -139,7 +139,7 @@ bool DECLDLL PLUGIN InitPlugin(const std::filesystem::path& d,
 
 std::wstring DECLDLL PLUGIN GetValues(const std::wstring& profile_name) {
   return string2wstring(fmt::format(
-      "\"twitch=>game_name\":{{\"sensor\":\"game\",\"value\":\"{}\"}}",
+      "\"osu=>game_name\":{{\"sensor\":\"game\",\"value\":\"{}\"}}",
       current_game));
 }
 
