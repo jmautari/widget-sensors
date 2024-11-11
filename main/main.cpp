@@ -39,6 +39,7 @@
 #include "steam/sdk/include/steam_api.h"
 #include "steam/sdk/include/isteamapps.h"
 #include "nlohmann/json.hpp"
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <unordered_map>
@@ -46,10 +47,20 @@
 #include <tuple>
 #include <thread>
 #include <shared_mutex>
-#include <sstream>
 #include <fstream>
+#include <sstream>
 #include <filesystem>
 #include <vector>
+
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#pragma comment(lib, "ws2_32.lib")
+#else
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+#endif
 
 #define WM_M_TRAY   WM_USER + 1
 #define ID_TRAY_ICON 100
@@ -91,6 +102,7 @@ constexpr wchar_t kInstanceMutex[] = L"widgetsensorinstance";
 constexpr wchar_t kGamesDatabase[] = L"gamedb.json";
 constexpr wchar_t kAppsDatabase[] = L"appdb.json";
 constexpr wchar_t kIgnoreList[] = L"ignore_list.json";
+constexpr wchar_t kWakeOnLan[] = L"wol.json";
 
 constexpr wchar_t kPluginsDir[] = L"plugins";
 constexpr wchar_t kPluginExtension[] = L".dll";
@@ -124,6 +136,92 @@ std::unordered_map<std::string,
     message_handler;
 
 void AddMenu(HMENU hmenu, int& pos, nlohmann::json const& popup);
+
+#ifdef _WIN32
+bool InitializeWinsock() {
+  WSADATA wsaData;
+  return WSAStartup(MAKEWORD(2, 2), &wsaData) == 0;
+}
+void CleanupWinsock() {
+  WSACleanup();
+}
+#endif
+
+void SendMagicPacket(const std::string& macAddress,
+    const std::string& broadcastAddress,
+    uint16_t port = 9) {
+  // Convert MAC address from string to byte array
+  std::array<uint8_t, 6> macBytes;
+  if (sscanf(macAddress.c_str(), "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", &macBytes[0],
+          &macBytes[1], &macBytes[2], &macBytes[3], &macBytes[4],
+          &macBytes[5]) != 6) {
+    throw std::runtime_error("Invalid MAC address format");
+  }
+
+  // Create the magic packet (6 bytes of 0xFF followed by 16 repetitions of the
+  // MAC address)
+  std::vector<uint8_t> magicPacket(102);
+  std::fill(magicPacket.begin(), magicPacket.begin() + 6, 0xFF);
+  for (size_t i = 6; i < magicPacket.size(); i += 6) {
+    std::copy(macBytes.begin(), macBytes.end(), magicPacket.begin() + i);
+  }
+
+#ifdef _WIN32
+  if (!InitializeWinsock()) {
+    throw std::runtime_error("Winsock initialization failed");
+  }
+#endif
+
+  // Create a socket
+  int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+  if (sock < 0) {
+#ifdef _WIN32
+    CleanupWinsock();
+#endif
+    throw std::runtime_error("Failed to create socket");
+  }
+
+  // Set socket options for broadcast
+  int broadcastEnable = 1;
+  if (setsockopt(sock, SOL_SOCKET, SO_BROADCAST,
+          reinterpret_cast<const char*>(&broadcastEnable),
+          sizeof(broadcastEnable)) < 0) {
+#ifndef _WIN32
+    close(sock);
+#else
+    CleanupWinsock();
+#endif
+    throw std::runtime_error("Failed to set socket options for broadcast");
+  }
+
+  // Set up broadcast address
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons(port);
+  addr.sin_addr.s_addr = inet_addr(broadcastAddress.c_str());
+
+  // Send the magic packet
+  if (sendto(sock, reinterpret_cast<const char*>(magicPacket.data()),
+          magicPacket.size(), 0, reinterpret_cast<sockaddr*>(&addr),
+          sizeof(addr)) < 0) {
+#ifndef _WIN32
+    close(sock);
+#else
+    CleanupWinsock();
+#endif
+    throw std::runtime_error("Failed to send magic packet");
+  }
+
+  // Clean up
+#ifndef _WIN32
+  close(sock);
+#else
+  CleanupWinsock();
+#endif
+
+  LOG(INFO) << "Magic packet sent to " << macAddress << " via "
+            << broadcastAddress << ":" << port;
+}
 
 bool IsRunning(HANDLE* mutex_handle) {
   auto handle = CreateMutexW(nullptr, true, kInstanceMutex);
@@ -515,6 +613,40 @@ std::string HandleWebsocketMessage(nlohmann::json const& msg) {
   return "";
 }
 
+auto SendWoL(const std::filesystem::path& config) {
+  std::error_code ec;
+  if (!std::filesystem::exists(config, ec)) {
+    LOG(INFO) << "Config file " << config.u8string()
+              << " not found. Not sending magic packet";
+    return;
+  }
+
+  LOG(INFO) << "Config file loaded from " << config.u8string();
+
+  try {
+    constexpr char kMacAddress[]{ "mac_address" };
+    constexpr char kBroadcastAddress[]{ "broadcast_address" };
+    std::ifstream file(config);
+    const auto json = nlohmann::json::parse(file);
+    if (!json.contains(kMacAddress) || !json.contains(kBroadcastAddress)) {
+      LOG(ERROR) << "Missing required fields (mac_address/broadcast_address)";
+      return;
+    }
+
+    const std::string mac_address = json[kMacAddress];
+    const std::string broadcast_address = json[kBroadcastAddress];
+
+    LOG(INFO) << "Sending magic packet to " << mac_address;
+    try {
+      SendMagicPacket(mac_address, broadcast_address);
+    } catch (std::exception& e) {
+      LOG(ERROR) << "Error processing magic packet. " << e.what();
+    }
+  } catch (...) {
+    LOG(ERROR) << "Error processing config file";
+  }
+}
+
 auto StartMonitoring(const wchar_t* data_dir) {
   std::error_code ec;
   if (data_dir == nullptr || !std::filesystem::exists(data_dir, ec) ||
@@ -523,6 +655,8 @@ auto StartMonitoring(const wchar_t* data_dir) {
 
   const auto path = std::filesystem::path(data_dir);
   LoadPlugins(path);
+
+  SendWoL(path / kWakeOnLan);
 
   std::unique_ptr<network::WebsocketServer> server;
   int result = 0;
@@ -610,7 +744,9 @@ auto StartMonitoring(const wchar_t* data_dir) {
     };
 
     do {
-      std::wostringstream o;
+      std::wstring str_buffer;
+      str_buffer.reserve(20000);
+      std::wostringstream o(str_buffer);
       o << LR"({"sensors":{)";
 
       auto [framerate, framerate_raw] = rtss.GetFramerate();
@@ -679,7 +815,7 @@ auto StartMonitoring(const wchar_t* data_dir) {
         << string2wstring(app_poster) << L"\"},";
       if (width && height) {
         o << L"\"game=>size\": {\"sensor\":\"size\",\"value\":\"" << width
-          << "x" << height << L"\"}";
+          << L"x" << height << L"\"}";
       } else {
         o << L"\"game=>size\": {\"sensor\":\"size\",\"value\":\"\"}";
       }
@@ -1037,8 +1173,6 @@ int WINAPI wWinMain(HINSTANCE hInstance,
     return 1;
   }
 
-  auto finalize_com = [] { CoUninitialize(); };
-
   // Step 2: --------------------------------------------------
   // Set general COM security levels --------------------------
 
@@ -1055,6 +1189,7 @@ int WINAPI wWinMain(HINSTANCE hInstance,
   if (FAILED(hres)) {
     LOG(ERROR) << "Failed to initialize security. Error code = 0x" << std::hex
                << hres;
+    CoUninitialize();
     return 1;
   }
 
@@ -1068,21 +1203,25 @@ int WINAPI wWinMain(HINSTANCE hInstance,
     int res = StartMonitoring(argc > 1 ? argv[1] : nullptr);
     running_promise.set_value(res);
   });
-  std::thread check_future([&] {
+  std::thread wait_future([&] {
     future.wait();
+    LOG(INFO) << "Terminating program";
     PostMessage(hwnd, WM_COMMAND, IDM_EXIT, 0);
   });
 
   MSG msg;
-  while (GetMessage(&msg, nullptr, 0, 0)) {
+  while (GetMessage(&msg, nullptr, 0, 0) > 0) {
     TranslateMessage(&msg);
     DispatchMessage(&msg);
   }
 
+  LOG(INFO) << "Waiting threads";
   thread.join();
-  check_future.join();
+  wait_future.join();
+  LOG(INFO) << "Done waiting thread";
 
   CloseHandle(quit_event);
   DeleteCriticalSection(&cs);
+  CoUninitialize();
   return future.get();
 }
