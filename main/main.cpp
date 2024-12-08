@@ -628,19 +628,24 @@ auto SendWoL(const std::filesystem::path& config) {
     constexpr char kBroadcastAddress[]{ "broadcast_address" };
     std::ifstream file(config);
     const auto json = nlohmann::json::parse(file);
-    if (!json.contains(kMacAddress) || !json.contains(kBroadcastAddress)) {
-      LOG(ERROR) << "Missing required fields (mac_address/broadcast_address)";
-      return;
-    }
+    for (auto&& [a, i] : json.items()) {
+      if (!i.contains(kMacAddress) || !i.contains(kBroadcastAddress)) {
+        LOG(ERROR) << "Missing required fields (mac_address/broadcast_address)";
+        return;
+      }
 
-    const std::string mac_address = json[kMacAddress];
-    const std::string broadcast_address = json[kBroadcastAddress];
+      const std::string mac_address = i[kMacAddress];
+      const std::string broadcast_address = i[kBroadcastAddress];
 
-    LOG(INFO) << "Sending magic packet to " << mac_address;
-    try {
-      SendMagicPacket(mac_address, broadcast_address);
-    } catch (std::exception& e) {
-      LOG(ERROR) << "Error processing magic packet. " << e.what();
+      LOG(INFO) << "Sending magic packet to " << mac_address;
+      try {
+        for (int i = 0; i < 5; i++) {
+          SendMagicPacket(mac_address, broadcast_address);
+          Sleep(500);
+        }
+      } catch (std::exception& e) {
+        LOG(ERROR) << "Error processing magic packet. " << e.what();
+      }
     }
   } catch (...) {
     LOG(ERROR) << "Error processing config file";
