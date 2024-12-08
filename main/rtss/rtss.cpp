@@ -29,12 +29,15 @@
 
 namespace rtss {
 RTSSSharedMemory::RTSSSharedMemory() {
+  InitializeCriticalSection(&cs_);
+  current_process_ = std::make_pair(0, nullptr);
   ready_ = Open();
 }
 
 RTSSSharedMemory::~RTSSSharedMemory() {
   ready_ = false;
   Close();
+  DeleteCriticalSection(&cs_);
 }
 
 bool RTSSSharedMemory::Open() {
@@ -76,7 +79,9 @@ void RTSSSharedMemory::Update() {
     shared_mem_->dwOSDFrame++;
 }
 
-std::string RTSSSharedMemory::GetCurrentProcessName() {
+std::string RTSSSharedMemory::GetCurrentProcessName() const {
+  EnterCriticalSection(&cs_);
+  auto leave_critical_section = [this] { LeaveCriticalSection(&cs_); };
   if (current_process_.first == 0 || current_process_.second == nullptr)
     return {};
 
@@ -85,6 +90,8 @@ std::string RTSSSharedMemory::GetCurrentProcessName() {
 
 RTSS_SHARED_MEMORY::LPRTSS_SHARED_MEMORY_APP_ENTRY
     RTSSSharedMemory::GetEntry() {
+  EnterCriticalSection(&cs_);
+  auto leave_critical_section = [this] { LeaveCriticalSection(&cs_); };
   auto const target_pid = GetCurrentProcessPid();
   if (target_pid == 0)
     return nullptr;

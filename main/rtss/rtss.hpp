@@ -43,7 +43,7 @@ public:
 
   std::pair<double, double> GetFramerate();
   std::pair<double, double> GetFrametime();
-  std::string GetCurrentProcessName();
+  std::string GetCurrentProcessName() const;
   auto IsReady() const noexcept {
     return ready_.load();
   }
@@ -61,5 +61,6 @@ private:
   HANDLE file_handle_ = nullptr;
   LPRTSS_SHARED_MEMORY shared_mem_ = nullptr;
   mutable std::pair<DWORD, rtss_entry_t> current_process_;
+  mutable CRITICAL_SECTION cs_;
 };
 }  // namespace rtss
