@@ -1,8 +1,7 @@
 @echo off
 setlocal
 
-if "%CI%" == "" set PATH=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer;%PATH%
-
+set PATH=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer;%PATH%
 echo %PATH%
 
 vswhere.exe -latest -version "[17.0,17.99]" -requires Microsoft.Component.MSBuild -property installationPath
