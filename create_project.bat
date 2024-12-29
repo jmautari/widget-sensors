@@ -3,16 +3,24 @@ setlocal
 
 set PATH=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer;%PATH%
 
+echo %PATH%
+
 for /f "usebackq delims=" %%i in (`vswhere.exe -latest -version "[17.0,17.99]" -requires Microsoft.Component.MSBuild -property installationPath`) do (
-  set InstallDir=%%i
   if not exist "%%i\MSBuild\Current\Bin\MSBuild.exe" (
     echo error: Cannot locate Visual Studio 2022.
     goto error_out
   )
+  set InstallDir=%%i
+  echo "InstallDir=%%i"
 )
 
 set __VCVARS=%InstallDir%\VC\Auxiliary\Build
 echo %__VCVARS%
+
+if not exist "%__VCVARS%\vcvarsall.bat" (
+  echo vcvarsall.bat not found
+  goto error
+)
 
 call "%__VCVARS%\vcvarsall.bat" amd64 10.0.26100.0
 
@@ -31,5 +39,6 @@ goto done
 
 :error
 echo Project creation failure.
+exit 1
 
 :done
