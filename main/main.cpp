@@ -34,6 +34,7 @@
 #include "rtss/rtss.hpp"
 #include "websocket/server.hpp"
 #include <iphlpapi.h>
+#include <icmpapi.h>
 #include <olectl.h>
 #include <wrl/client.h>
 #include <shellapi.h>
@@ -629,14 +630,14 @@ std::string HandleWebsocketMessage(nlohmann::json const& msg) {
   return "";
 }
 
-bool IsDeviceConnected(const std::string& macAddress) {
+std::string GetDeviceIpFromMacAddress(const std::string& macAddress) {
   PMIB_IPNET_TABLE2 arpTable = nullptr;
   if (GetIpNetTable2(AF_INET, &arpTable) != NO_ERROR) {
     LOG(ERROR) << "Failed to get ARP table";
-    return false;
+    return {};
   }
 
-  bool found = false;
+  std::string found;
   for (ULONG i = 0; i < arpTable->NumEntries; i++) {
     const auto& entry = arpTable->Table[i];
 
@@ -649,13 +650,50 @@ bool IsDeviceConnected(const std::string& macAddress) {
             << static_cast<int>(entry.PhysicalAddress[j]) << std::dec;
       }
       if (oss.str() == macAddress) {
-        found = true;
+        std::ostringstream ipStream;
+        ipStream << int(entry.Address.Ipv4.sin_addr.S_un.S_un_b.s_b1) << "."
+                 << int(entry.Address.Ipv4.sin_addr.S_un.S_un_b.s_b2) << "."
+                 << int(entry.Address.Ipv4.sin_addr.S_un.S_un_b.s_b3) << "."
+                 << int(entry.Address.Ipv4.sin_addr.S_un.S_un_b.s_b4);
+        found = ipStream.str();
         break;
       }
     }
   }
   FreeMibTable(arpTable);
   return found;
+}
+
+bool PingIPAddress(const std::string& ipAddress) {
+  HANDLE hIcmpFile = IcmpCreateFile();
+  if (hIcmpFile == INVALID_HANDLE_VALUE) {
+    LOG(ERROR) << "Unable to open ICMP handle. Error: " << GetLastError();
+    return false;
+  }
+
+  constexpr DWORD timeout = 1000;
+  char send_data[]{ "Ping" };
+  constexpr DWORD request_size = sizeof(send_data);
+  const DWORD reply_size = sizeof(ICMP_ECHO_REPLY) + request_size + 8;
+  std::vector<char> reply_buffer(reply_size);
+  DWORD dwRetVal = IcmpSendEcho(hIcmpFile, inet_addr(ipAddress.c_str()),
+      send_data, request_size, nullptr, reply_buffer.data(), reply_size,
+      timeout);
+
+  bool success = false;
+  if (dwRetVal > 0) {
+    const auto reply = reinterpret_cast<PICMP_ECHO_REPLY>(reply_buffer.data());
+    LOG(INFO) << "Ping to " << ipAddress
+              << " was successful (Round trip time: " << reply->RoundTripTime
+              << "ms)";
+    success = true;
+  } else {
+    LOG(ERROR) << "Ping to " << ipAddress
+               << " failed. Error: " << GetLastError();
+  }
+
+  IcmpCloseHandle(hIcmpFile);
+  return success;
 }
 
 auto SendWoL(const std::filesystem::path& config) {
@@ -680,7 +718,8 @@ auto SendWoL(const std::filesystem::path& config) {
       }
 
       const std::string mac_address = i[kMacAddress];
-      if (IsDeviceConnected(mac_address)) {
+      const std::string ip = GetDeviceIpFromMacAddress(mac_address);
+      if (!ip.empty() && PingIPAddress(ip)) {
         LOG(INFO) << "Skipping " << mac_address << " - already online";
         continue;
       }

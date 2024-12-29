@@ -145,7 +145,7 @@ target_link_options(${MAIN_TARGET} PRIVATE "$<$<CONFIG:RELEASE>:/DEBUG>" "$<$<CO
 
 # Add required libs below
 target_link_libraries(${MAIN_TARGET} PRIVATE
-  crypt32 steam_api64 iphlpapi
+  crypt32 steam_api64 iphlpapi ws2_32
 )
 
 # Add the custom Windows manifest files to the executable.
