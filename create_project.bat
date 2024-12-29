@@ -3,6 +3,10 @@ setlocal
 
 if "%CI%" == "" set PATH=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer;%PATH%
 
+echo %PATH%
+
+vswhere.exe -latest -version "[17.0,17.99]" -requires Microsoft.Component.MSBuild -property installationPath
+
 for /f "usebackq delims=" %%i in (`vswhere.exe -latest -version "[17.0,17.99]" -requires Microsoft.Component.MSBuild -property installationPath`) do (
   if not exist "%%i\MSBuild\Current\Bin\MSBuild.exe" (
     echo error: Cannot locate Visual Studio 2022.
