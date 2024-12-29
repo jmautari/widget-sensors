@@ -19,7 +19,12 @@ call "%__VCVARS%\vcvarsall.bat" amd64 10.0.19041.0 -vcvars_ver=14.2 %*
 mkdir build
 
 cd build
-cmake -Wno-dev -DCMAKE_PREFIX_PATH=../third_party/fmt/support/cmake -G "Visual Studio 16" -A x64 -DCMAKE_SYSTEM_VERSION=10.0.19041.0 ..
+if exist CMakeCache.txt (
+  echo Deleting existing CMakeCache.txt
+  del CMakeCache.txt
+)
+
+cmake -Wno-dev -DCMAKE_PREFIX_PATH=../third_party/fmt/support/cmake -G "Visual Studio 17" -A x64 -DCMAKE_SYSTEM_VERSION=10.0.26100.0 ..
 cd ..
 goto done
 

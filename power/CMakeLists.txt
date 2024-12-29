@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.15.1)
+cmake_minimum_required(VERSION 3.20)
 
 # Only generate Debug and Release configuration types.
 set(CMAKE_CONFIGURATION_TYPES Debug Release)

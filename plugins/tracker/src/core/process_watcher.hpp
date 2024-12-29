@@ -26,9 +26,6 @@
 #pragma once
 
 #include "eventsink.h"
-#include <wbemcli.h>
-#include <comdef.h>
-#include <atlbase.h>
 #include <thread>
 #include <condition_variable>
 #include <mutex>

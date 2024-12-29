@@ -24,8 +24,11 @@
  * SOFTWARE.
  */
 #include "process_watcher.hpp"
+#include <wrl/client.h>
 #include "shared/logger.hpp"
 #include <array>
+
+using Microsoft::WRL::ComPtr;
 
 namespace core {
 ProcessWatcher::~ProcessWatcher() {
@@ -39,7 +42,7 @@ void ProcessWatcher::WatcherThread() {
     // Step 3: ---------------------------------------------------
     // Obtain the initial locator to WMI -------------------------
 
-    CComPtr<IWbemLocator> pLoc;
+    ComPtr<IWbemLocator> pLoc;
 
     HRESULT hres = CoCreateInstance(
         CLSID_WbemLocator, 0, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&pLoc));
@@ -52,7 +55,7 @@ void ProcessWatcher::WatcherThread() {
     // Step 4: ---------------------------------------------------
     // Connect to WMI through the IWbemLocator::ConnectServer method
 
-    CComPtr<IWbemServices> pSvc;
+    ComPtr<IWbemServices> pSvc;
 
     // Connect to the local root\cimv2 namespace
     // and obtain pointer pSvc to make IWbemServices calls.
@@ -68,14 +71,14 @@ void ProcessWatcher::WatcherThread() {
     // Step 5: --------------------------------------------------
     // Set security levels on the proxy -------------------------
 
-    hres = CoSetProxyBlanket(pSvc,    // Indicates the proxy to set
-        RPC_C_AUTHN_WINNT,            // RPC_C_AUTHN_xxx
-        RPC_C_AUTHZ_NONE,             // RPC_C_AUTHZ_xxx
-        NULL,                         // Server principal name
-        RPC_C_AUTHN_LEVEL_CALL,       // RPC_C_AUTHN_LEVEL_xxx
-        RPC_C_IMP_LEVEL_IMPERSONATE,  // RPC_C_IMP_LEVEL_xxx
-        NULL,                         // client identity
-        EOAC_NONE                     // proxy capabilities
+    hres = CoSetProxyBlanket(pSvc.Get(),  // Indicates the proxy to set
+        RPC_C_AUTHN_WINNT,                // RPC_C_AUTHN_xxx
+        RPC_C_AUTHZ_NONE,                 // RPC_C_AUTHZ_xxx
+        NULL,                             // Server principal name
+        RPC_C_AUTHN_LEVEL_CALL,           // RPC_C_AUTHN_LEVEL_xxx
+        RPC_C_IMP_LEVEL_IMPERSONATE,      // RPC_C_IMP_LEVEL_xxx
+        NULL,                             // client identity
+        EOAC_NONE                         // proxy capabilities
     );
     if (FAILED(hres)) {
       LOG(ERROR) << "Could not set proxy blanket. Error code = 0x" << std::hex
@@ -87,12 +90,12 @@ void ProcessWatcher::WatcherThread() {
     // Receive event notifications -----------------------------
 
     // Use an unsecured apartment for security
-    CComPtr<IUnsecuredApartment> pUnsecApp;
+    ComPtr<IUnsecuredApartment> pUnsecApp;
     hres = CoCreateInstance(CLSID_UnsecuredApartment, NULL, CLSCTX_LOCAL_SERVER,
         IID_PPV_ARGS(&pUnsecApp));
 
     auto create_event_listener = [&](auto&& et, auto&& q,
-                                     CComPtr<IWbemObjectSink>& pStubSink)
+                                     ComPtr<IWbemObjectSink>& pStubSink)
         -> std::unique_ptr<WmiUtil::EventSink> {
       auto pSink = std::make_unique<WmiUtil::EventSink>(
           et, [&](auto&& event_type, auto&& process_name, int pid) {
@@ -100,7 +103,7 @@ void ProcessWatcher::WatcherThread() {
               callback_(event_type, process_name, pid);
           });
 
-      CComPtr<IUnknown> pStubUnk;
+      ComPtr<IUnknown> pStubUnk;
       hres = pUnsecApp->CreateObjectStub(pSink.get(), &pStubUnk);
       if (FAILED(hres))
         return nullptr;
@@ -112,7 +115,7 @@ void ProcessWatcher::WatcherThread() {
       // The ExecNotificationQueryAsync method will call
       // The EventQuery::Indicate method when an event occurs
       hres = pSvc->ExecNotificationQueryAsync(
-          _bstr_t("WQL"), _bstr_t(q), WBEM_FLAG_SEND_STATUS, NULL, pStubSink);
+          _bstr_t("WQL"), _bstr_t(q), WBEM_FLAG_SEND_STATUS, NULL, pStubSink.Get());
       if (FAILED(hres))
         return nullptr;
 
@@ -128,7 +131,7 @@ void ProcessWatcher::WatcherThread() {
           "TargetInstance ISA 'Win32_Process'")
     };
     std::array<std::unique_ptr<WmiUtil::EventSink>, 2> events;
-    std::array<CComPtr<IWbemObjectSink>, 2> stubs;
+    std::array<ComPtr<IWbemObjectSink>, 2> stubs;
     for (size_t i = 0; i < sizeof(queries) / sizeof(queries[0]); i++) {
       auto p = create_event_listener(
           queries[i].first, queries[i].second.c_str(), stubs[i]);
@@ -153,7 +156,7 @@ void ProcessWatcher::WatcherThread() {
     }
 
     for (size_t i = 0; i < sizeof(queries) / sizeof(queries[0]); i++) {
-      hres = pSvc->CancelAsyncCall(stubs[i]);
+      hres = pSvc->CancelAsyncCall(stubs[i].Get());
       if (FAILED(hres))
         LOG(ERROR) << "Failure. HR=0x" << std::hex << hres;
 

@@ -24,6 +24,8 @@
  * SOFTWARE.
  */
 #include "process_tracker.hpp"
+#include <wbemcli.h>
+#include <comdef.h>
 
 namespace core {
 void ProcessTracker::Add(int pid, std::string process_name) {

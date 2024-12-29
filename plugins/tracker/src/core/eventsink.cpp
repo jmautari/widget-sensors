@@ -24,7 +24,9 @@
  * SOFTWARE.
  */
 #include "eventsink.h"
-#include <atlbase.h>
+#include <wrl/client.h>
+
+using Microsoft::WRL::ComPtr;
 
 namespace WmiUtil {
 ULONG EventSink::AddRef() {
@@ -55,7 +57,7 @@ HRESULT EventSink::Indicate(long lObjectCount, IWbemClassObject** apObjArray) {
     HRESULT hr = apObjArray[i]->Get(L"TargetInstance", 0, &vtProp, 0, 0);
     if (SUCCEEDED(hr) &&
         (vtProp.vt == VT_UNKNOWN || vtProp.vt == VT_DISPATCH)) {
-      CComPtr<IWbemClassObject> pEventObject;
+      ComPtr<IWbemClassObject> pEventObject;
       hr = vtProp.punkVal->QueryInterface(IID_PPV_ARGS(&pEventObject));
       if (FAILED(hr))
         continue;

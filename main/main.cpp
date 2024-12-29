@@ -28,11 +28,14 @@
 #include "shared/widget_plugin.h"
 #include "shared/string_util.h"
 #include "shared/power_util.hpp"
+#include "shared/shell_util.hpp"
 #include "resources/win/resource.h"
 #include "main/version.h"
 #include "rtss/rtss.hpp"
 #include "websocket/server.hpp"
-#include <atlbase.h>
+#include <iphlpapi.h>
+#include <olectl.h>
+#include <wrl/client.h>
 #include <shellapi.h>
 #include <commctrl.h>
 #include <tlhelp32.h>
@@ -61,6 +64,8 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #endif
+
+using Microsoft::WRL::ComPtr;
 
 #define WM_M_TRAY   WM_USER + 1
 #define ID_TRAY_ICON 100
@@ -134,8 +139,19 @@ windows::PowerUtil power_util;
 std::unordered_map<std::string,
     std::function<std::string(nlohmann::json const&)>>
     message_handler;
+std::unordered_map<std::string, std::function<void(nlohmann::json const&)>>
+    main_command_handler;
 
 void AddMenu(HMENU hmenu, int& pos, nlohmann::json const& popup);
+
+std::filesystem::path GetConfigPath() {
+  int argc{};
+  auto argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+  if (argv == nullptr)
+    return {};
+
+  return argc > 1 ? argv[1] : kDefaultDataDir;
+}
 
 #ifdef _WIN32
 bool InitializeWinsock() {
@@ -245,25 +261,25 @@ HRESULT SaveIcon(HICON hIcon, const wchar_t* path) {
   PICTDESC desc{};
   desc.picType = PICTYPE_ICON;
   desc.icon.hicon = hIcon;
-  CComPtr<IPicture> pPicture;
+  ComPtr<IPicture> pPicture;
   HRESULT hr = OleCreatePictureIndirect(
       &desc, IID_IPicture, FALSE, (void**)&pPicture);
   if (FAILED(hr))
     return hr;
 
   // Create a stream and save the image
-  CComPtr<IStream> pStream;
+  ComPtr<IStream> pStream;
   hr = CreateStreamOnHGlobal(0, TRUE, &pStream);
   if (FAILED(hr))
     return hr;
 
   LONG cbSize = 0;
-  hr = pPicture->SaveAsFile(pStream, TRUE, &cbSize);
+  hr = pPicture->SaveAsFile(pStream.Get(), TRUE, &cbSize);
 
   // Write the stream content to the file
   if (!FAILED(hr)) {
     HGLOBAL hBuf = 0;
-    hr = GetHGlobalFromStream(pStream, &hBuf);
+    hr = GetHGlobalFromStream(pStream.Get(), &hBuf);
     if (FAILED(hr))
       return hr;
 
@@ -613,6 +629,35 @@ std::string HandleWebsocketMessage(nlohmann::json const& msg) {
   return "";
 }
 
+bool IsDeviceConnected(const std::string& macAddress) {
+  PMIB_IPNET_TABLE2 arpTable = nullptr;
+  if (GetIpNetTable2(AF_INET, &arpTable) != NO_ERROR) {
+    LOG(ERROR) << "Failed to get ARP table";
+    return false;
+  }
+
+  bool found = false;
+  for (ULONG i = 0; i < arpTable->NumEntries; i++) {
+    const auto& entry = arpTable->Table[i];
+
+    if (entry.PhysicalAddressLength > 0) {
+      std::ostringstream oss;
+      for (ULONG j = 0; j < entry.PhysicalAddressLength; j++) {
+        if (j > 0)
+          oss << ":";
+        oss << std::uppercase << std::hex << std::setfill('0') << std::setw(2)
+            << static_cast<int>(entry.PhysicalAddress[j]) << std::dec;
+      }
+      if (oss.str() == macAddress) {
+        found = true;
+        break;
+      }
+    }
+  }
+  FreeMibTable(arpTable);
+  return found;
+}
+
 auto SendWoL(const std::filesystem::path& config) {
   std::error_code ec;
   if (!std::filesystem::exists(config, ec)) {
@@ -635,16 +680,21 @@ auto SendWoL(const std::filesystem::path& config) {
       }
 
       const std::string mac_address = i[kMacAddress];
-      const std::string broadcast_address = i[kBroadcastAddress];
+      if (IsDeviceConnected(mac_address)) {
+        LOG(INFO) << "Skipping " << mac_address << " - already online";
+        continue;
+      }
 
+      const std::string broadcast_address = i[kBroadcastAddress];
       LOG(INFO) << "Sending magic packet to " << mac_address;
-      try {
-        for (int i = 0; i < 5; i++) {
+      for (int i = 0; i < 5; i++) {
+        try {
           SendMagicPacket(mac_address, broadcast_address);
+          break;
+        } catch (std::exception& e) {
+          LOG(ERROR) << "Error processing magic packet. " << e.what();
           Sleep(500);
         }
-      } catch (std::exception& e) {
-        LOG(ERROR) << "Error processing magic packet. " << e.what();
       }
     }
   } catch (...) {
@@ -906,6 +956,14 @@ void CopyCurrentData() {
   CloseClipboard();
 }
 
+void ExecutePopupCommand(const std::string& command, const nlohmann::json& params) {
+  if (main_command_handler.find(command) == main_command_handler.end())
+    return;
+
+  auto& fun = main_command_handler[command];
+  fun(params);
+}
+
 void ExecuteCustomCommand(size_t index) {
   auto it = custom_commands.find(index);
   if (it == custom_commands.end())
@@ -914,6 +972,11 @@ void ExecuteCustomCommand(size_t index) {
   try {
     auto custom_command = it->second;
     std::string action = custom_command["action"];
+    if (action == "Main") {
+      ExecutePopupCommand(custom_command["command"], custom_command["params"]);
+      return;
+    }
+
     std::transform(action.begin(), action.end(), action.begin(),
         [](auto c) { return std::tolower(c); });
     auto it = plugin_list.find(action);
@@ -959,14 +1022,7 @@ void AddMenu(HMENU hmenu, int& pos, nlohmann::json const& popup) {
 }
 
 void GetMenuOptions(HMENU hmenu, int& pos) {
-  int argc{};
-  auto argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-  if (argv == nullptr)
-    return;
-
-  std::filesystem::path config_file{ argc > 1 ? argv[1] : kDefaultDataDir };
-  config_file /= kConfigFile;
-
+  const auto config_file = GetConfigPath() / kConfigFile;
   std::error_code ec;
   if (!std::filesystem::exists(config_file, ec))
     return;
@@ -1145,6 +1201,80 @@ bool CreateWindowResources(HINSTANCE hInstance) {
 
   return true;
 }
+
+void SetMainCommandHandlers() {
+  main_command_handler.emplace("OpenWOLConfigFile", [](auto&& params) { 
+    const auto cfg_file = GetConfigPath() / kWakeOnLan;
+    static_cast<void>(util::OpenViaShell(cfg_file));
+  });
+}
+
+void SetProcessAffinity() {
+  const auto ecore_masks = [] {
+    std::vector<DWORD_PTR> ecores;
+    DWORD bufferSize = 0;
+    if (!GetLogicalProcessorInformationEx(
+            RelationProcessorCore, nullptr, &bufferSize) &&
+        GetLastError() != ERROR_INSUFFICIENT_BUFFER) {
+      LOG(ERROR) << "Failed to get buffer size. Error: " << GetLastError();
+      return ecores;
+    }
+
+    std::vector<char> buffer(bufferSize);
+    if (!GetLogicalProcessorInformationEx(RelationProcessorCore,
+            reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(
+                buffer.data()),
+            &bufferSize)) {
+      LOG(ERROR) << "Failed to get processor information. Error: "
+                 << GetLastError();
+      return ecores;
+    }
+
+    size_t offset = 0;
+    while (offset < bufferSize) {
+      auto info = reinterpret_cast<PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX>(
+          &buffer[offset]);
+
+      if (info->Relationship == RelationProcessorCore) {
+        auto& procInfo = info->Processor;
+
+        /*
+          EfficiencyClass
+
+          If the Relationship member of the SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX
+          structure is RelationProcessorCore, EfficiencyClass specifies the intrinsic
+          tradeoff between performance and power for the applicable core. A core with a
+          higher value for the efficiency class has intrinsically greater performance and
+          less efficiency than a core with a lower value for the efficiency class.
+          EfficiencyClass is only nonzero on systems with a heterogeneous set of cores.
+
+          This will include all cores when running on a non-hybrid CPU.
+        */
+        if (procInfo.EfficiencyClass == 0) {
+          ecores.push_back(procInfo.GroupMask[0].Mask);
+        }
+      }
+
+      offset += info->Size;
+    }
+    return ecores;
+  }();
+  if (ecore_masks.empty()) {
+    LOG(ERROR) << "No e-cores found";
+    return;
+  }
+
+  DWORD_PTR mask = 0;
+  for (auto v : ecore_masks) {
+    mask |= v;
+  }
+  LOG(INFO) << "Setting process affinity mask to 0x" << std::hex << mask << std::dec;
+
+  if (SetProcessAffinityMask(GetCurrentProcess(), mask) == 0) {
+    LOG(ERROR) << "Failed to set process affinity mask. Error: " << GetLastError();
+  }
+}
+
 }  // namespace
 
 int WINAPI wWinMain(HINSTANCE hInstance,
@@ -1159,8 +1289,12 @@ int WINAPI wWinMain(HINSTANCE hInstance,
   int argc;
   auto const argv = CommandLineToArgvW(GetCommandLineW(), &argc);
 
+  SetProcessAffinity();
+
   if (!CreateWindowResources(hInstance))
     return 1;
+
+  SetMainCommandHandlers();
 
   quit_event = CreateEvent(nullptr, true, false, nullptr);
   if (quit_event == nullptr) {

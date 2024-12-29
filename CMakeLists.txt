@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.15.1)
+cmake_minimum_required(VERSION 3.20)
 
 # Only generate Debug and Release configuration types.
 set(CMAKE_CONFIGURATION_TYPES Debug Release)
@@ -145,7 +145,7 @@ target_link_options(${MAIN_TARGET} PRIVATE "$<$<CONFIG:RELEASE>:/DEBUG>" "$<$<CO
 
 # Add required libs below
 target_link_libraries(${MAIN_TARGET} PRIVATE
-  crypt32 steam_api64
+  crypt32 steam_api64 iphlpapi
 )
 
 # Add the custom Windows manifest files to the executable.
