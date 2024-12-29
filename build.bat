@@ -8,10 +8,10 @@ if not exist "build\%PROJECT_NAME%.sln" goto need_to_create_build_solution
 
 PATH=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer;%PATH%
 
-for /f "usebackq delims=" %%i in (`vswhere.exe -latest -version "[16.4,16.99]" -requires Microsoft.Component.MSBuild -property installationPath`) do (
+for /f "usebackq delims=" %%i in (`vswhere.exe -latest -version "[17.0,17.99]" -requires Microsoft.Component.MSBuild -property installationPath`) do (
   set InstallDir=%%i
   if not exist "%%i\MSBuild\Current\Bin\MSBuild.exe" (
-    echo error: Cannot locate Visual Studio 2019.
+    echo error: Cannot locate Visual Studio 2022.
     goto error_out
   )
 )
