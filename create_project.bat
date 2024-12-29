@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-PATH=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer;%PATH%
+set PATH=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer;%PATH%
 
 for /f "usebackq delims=" %%i in (`vswhere.exe -latest -version "[17.0,17.99]" -requires Microsoft.Component.MSBuild -property installationPath`) do (
   set InstallDir=%%i
