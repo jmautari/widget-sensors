@@ -35,7 +35,7 @@ jobs:
         copy third_party\steam\sdk\redistributable_bin\win64\*.dll build\Release\ /y
       shell: cmd
     - name: Save artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ env.PROJECT_NAME }}
         path: build/Release/*
