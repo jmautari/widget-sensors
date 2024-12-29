@@ -12,8 +12,9 @@ for /f "usebackq delims=" %%i in (`vswhere.exe -latest -version "[17.0,17.99]" -
 )
 
 set __VCVARS=%InstallDir%\VC\Auxiliary\Build
+echo %__VCVARS%
 
-call "%__VCVARS%\vcvarsall.bat" amd64 10.0.26100.0 -vcvars_ver=14.3 %*
+call "%__VCVARS%\vcvarsall.bat" amd64 10.0.26100.0
 
 :build
 mkdir build
@@ -24,7 +25,7 @@ if exist CMakeCache.txt (
   del CMakeCache.txt
 )
 
-cmake -Wno-dev -DCMAKE_PREFIX_PATH=../third_party/fmt/support/cmake -G "Visual Studio 17" -A x64 -DCMAKE_SYSTEM_VERSION=10.0.26100.0 ..
+cmake -Wno-dev -DCMAKE_PREFIX_PATH=../third_party/fmt/support/cmake -G "Visual Studio 17 2022" -A x64 -DCMAKE_SYSTEM_VERSION=10.0.26100.0 ..
 cd ..
 goto done
 
