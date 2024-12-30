@@ -30,7 +30,7 @@
 namespace rtss {
 RTSSSharedMemory::RTSSSharedMemory() {
   InitializeCriticalSection(&cs_);
-  current_process_ = std::make_pair(0, nullptr);
+  current_process_ = std::make_pair(0, rtss_entry_t{});
   ready_ = Open();
 }
 
@@ -82,23 +82,22 @@ void RTSSSharedMemory::Update() {
 std::string RTSSSharedMemory::GetCurrentProcessName() const {
   EnterCriticalSection(&cs_);
   auto leave_critical_section = [this] { LeaveCriticalSection(&cs_); };
-  if (current_process_.first == 0 || current_process_.second == nullptr)
+  if (current_process_.first == 0)
     return {};
 
-  return current_process_.second->szName;
+  return current_process_.second.szName;
 }
 
-RTSS_SHARED_MEMORY::LPRTSS_SHARED_MEMORY_APP_ENTRY
-    RTSSSharedMemory::GetEntry() {
+rtss_entry_t RTSSSharedMemory::GetEntry() {
   EnterCriticalSection(&cs_);
   auto leave_critical_section = [this] { LeaveCriticalSection(&cs_); };
   auto const target_pid = GetCurrentProcessPid();
   if (target_pid == 0)
-    return nullptr;
+    return {};
 
   Update();
   if (!Reset())
-    return nullptr;
+    return {};
 
   auto const size = static_cast<size_t>(shared_mem_->dwOSDArrSize);
   for (size_t i = 0; i < size; i++) {
@@ -108,14 +107,14 @@ RTSS_SHARED_MEMORY::LPRTSS_SHARED_MEMORY_APP_ENTRY
         (i * shared_mem_->dwAppEntrySize));
     if (entry->dwProcessID == target_pid) {
       if (entry->dwProcessID != current_process_.first) {
-        current_process_ = std::make_pair(entry->dwProcessID, entry);
+        current_process_ = std::make_pair(entry->dwProcessID, *entry);
       }
 
-      return entry;
+      return *entry;
     }
   }
-  current_process_ = std::make_pair(0, nullptr);
-  return nullptr;
+  current_process_ = {};
+  return {};
 }
 
 std::pair<double, double> RTSSSharedMemory::GetFramerate() {
@@ -123,13 +122,13 @@ std::pair<double, double> RTSSSharedMemory::GetFramerate() {
     return {};
 
   auto const entry = GetEntry();
-  if (entry == nullptr)
+  if (entry.dwProcessID == 0)
     return {};
 
-  auto const delta = double(entry->dwTime1 - entry->dwTime0);
+  auto const delta = double(entry.dwTime1 - entry.dwTime0);
   double framerate{};
   if (delta > 0.0)
-    framerate = 1000.0 * entry->dwFrames / delta;
+    framerate = 1000.0 * entry.dwFrames / delta;
 
   return { std::round(framerate), std::ceil(framerate * 10.0) / 10.0 };
 }
@@ -139,10 +138,10 @@ std::pair<double, double> RTSSSharedMemory::GetFrametime() {
     return {};
 
   auto const entry = GetEntry();
-  if (entry == nullptr)
+  if (entry.dwProcessID == 0)
     return {};
 
-  auto const frametime = double(entry->dwFrameTime) / 1000.0;
+  auto const frametime = double(entry.dwFrameTime) / 1000.0;
   return { std::round(frametime), std::ceil(frametime * 10.0) / 10.0 };
 }
 

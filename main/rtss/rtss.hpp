@@ -32,7 +32,7 @@
 
 namespace rtss {
 inline constexpr wchar_t kRtssSharedMemoryId[] = L"RTSSSharedMemoryV2";
-using rtss_entry_t = RTSS_SHARED_MEMORY::LPRTSS_SHARED_MEMORY_APP_ENTRY;
+using rtss_entry_t = RTSS_SHARED_MEMORY::RTSS_SHARED_MEMORY_APP_ENTRY;
 
 DWORD GetCurrentProcessPid();
 
