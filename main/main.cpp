@@ -837,9 +837,9 @@ auto StartMonitoring(const wchar_t* data_dir) {
       LeaveCriticalSection(&cs);
     };
 
+    std::wstring str_buffer;
+    str_buffer.reserve(20000);
     do {
-      std::wstring str_buffer;
-      str_buffer.reserve(20000);
       std::wostringstream o(str_buffer);
       o << LR"({"sensors":{)";
 
